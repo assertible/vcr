@@ -1,0 +1,27 @@
+name: vcr
+
+dependencies:
+  - base
+  - bytestring
+  - text
+  - filepath
+  - directory
+  - network-uri
+  - case-insensitive
+  - http-types
+  - http-client
+  - yaml
+  - HUnit
+
+library:
+  source-dirs: src
+
+tests:
+  spec:
+    main: Spec.hs
+    source-dirs: test
+    dependencies:
+      - vcr
+      - hspec
+      - mockery
+      - http-client-tls
