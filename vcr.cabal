@@ -1,0 +1,59 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.34.2.
+--
+-- see: https://github.com/sol/hpack
+
+name:           vcr
+version:        0.0.0
+build-type:     Simple
+
+library
+  exposed-modules:
+      VCR
+      WebMock
+      WebMock.Util
+  other-modules:
+      Paths_vcr
+  hs-source-dirs:
+      src
+  build-depends:
+      HUnit
+    , base
+    , bytestring
+    , case-insensitive
+    , directory
+    , filepath
+    , http-client
+    , http-types
+    , network-uri
+    , text
+    , yaml
+  default-language: Haskell2010
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      VCRSpec
+      WebMock.UtilSpec
+      Paths_vcr
+  hs-source-dirs:
+      test
+  build-depends:
+      HUnit
+    , base
+    , bytestring
+    , case-insensitive
+    , directory
+    , filepath
+    , hspec
+    , http-client
+    , http-client-tls
+    , http-types
+    , mockery
+    , network-uri
+    , text
+    , vcr
+    , yaml
+  default-language: Haskell2010
