@@ -13,6 +13,9 @@ module VCR (
 
 import           Control.Exception
 import           Control.Monad
+import           Data.Text (Text)
+import           Data.Ord
+import           Data.Maybe
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.CaseInsensitive as CI
@@ -20,6 +23,7 @@ import           Data.IORef
 import           Data.String
 import           Data.Yaml
 import qualified Data.Yaml as Yaml
+import qualified Data.Yaml.Pretty as Yaml
 import           GHC.Stack (HasCallStack)
 import           System.Directory
 import           System.FilePath
@@ -117,7 +121,31 @@ playInOrder = mockRequestChain . map toRequestAction
 saveTape :: FilePath -> [Interaction] -> IO ()
 saveTape file interactions = do
     ensureDirectory file
-    Yaml.encodeFile file interactions
+    B.writeFile file $ Yaml.encodePretty conf interactions
+  where
+    conf = Yaml.setConfCompare (comparing f) Yaml.defConfig
+
+    f :: Text -> Int
+    f name = fromMaybe maxBound (lookup name fieldOrder)
+
+fieldOrder :: [(Text, Int)]
+fieldOrder = flip zip [1..] [
+    "request"
+  , "response"
+
+  , "method"
+  , "url"
+
+  , "status"
+  , "headers"
+  , "body"
+
+  , "code"
+  , "message"
+
+  , "name"
+  , "value"
+  ]
 
 ensureDirectory :: FilePath -> IO ()
 ensureDirectory = createDirectoryIfMissing True . takeDirectory
