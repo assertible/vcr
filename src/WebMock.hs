@@ -149,4 +149,6 @@ fromSimpleResponse Response{..} = do
     , Client.responseBody = atomicModifyIORef ref (\ c -> ("", c))
     , Client.responseCookieJar = mempty
     , Client.responseClose' = Client.ResponseClose $ return ()
+    , Client.responseOriginalRequest = error "responseOriginalRequest not supported"
+    , Client.responseEarlyHints = mempty
     }
