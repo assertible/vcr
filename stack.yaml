@@ -1,0 +1,12 @@
+resolver: lts-22.38
+require-stack-version: ">=3.1"
+compiler-check: newer-minor
+packages:
+  - .
+
+extra-deps:
+  - github: assertible/http-client
+    commit: 65b5c5aa8947d2cf43f9afbef52ecca25c19cfba
+    subdirs:
+      - http-client
+      - http-conduit
