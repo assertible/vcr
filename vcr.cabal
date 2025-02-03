@@ -37,11 +37,16 @@ test-suite spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      VCR
+      WebMock
+      WebMock.Util
       VCRSpec
       WebMock.UtilSpec
       Paths_vcr
   hs-source-dirs:
+      src
       test
+  cpp-options: -DTEST
   build-tool-depends:
       hspec-discover:hspec-discover
   build-depends:
@@ -58,6 +63,5 @@ test-suite spec
     , mockery
     , network-uri
     , text
-    , vcr
     , yaml
   default-language: Haskell2010

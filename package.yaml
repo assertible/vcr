@@ -19,10 +19,12 @@ library:
 tests:
   spec:
     main: Spec.hs
-    source-dirs: test
+    source-dirs:
+      - src
+      - test
     dependencies:
-      - vcr
       - hspec
       - mockery
       - http-client-tls
+    cpp-options: -DTEST
     build-tools: hspec-discover

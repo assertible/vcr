@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -9,6 +10,10 @@ module VCR (
 , withTape
 , recordTape
 , playTape
+#ifdef TEST
+, Interaction(..)
+, loadTape
+#endif
 ) where
 
 import           Control.Exception
@@ -33,21 +38,30 @@ import           WebMock
 data Tape = Tape {
   tapeFile :: FilePath
 , tapeMode :: Mode
-} deriving (Eq, Show)
+, tapeRedact :: Request -> Request
+}
 
 instance IsString Tape where
-    fromString file = Tape file AnyOrder
+    fromString file = Tape file AnyOrder redactAuthorization
 
 data Mode = Sequential | AnyOrder
     deriving (Eq, Show)
 
-withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape (Tape file mode) = case mode of
-    AnyOrder -> modeAnyOrder file
-    Sequential -> modeSequential file
+redactAuthorization :: Request -> Request
+redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
+  where
+    redact :: Header -> Header
+    redact header@(name, _)
+      | name == hAuthorization = (name, "********")
+      | otherwise = header
 
-modeAnyOrder :: FilePath -> IO a -> IO a
-modeAnyOrder file action = do
+withTape :: HasCallStack => Tape -> IO a -> IO a
+withTape (Tape file mode redact) = case mode of
+    AnyOrder -> modeAnyOrder redact file
+    Sequential -> modeSequential redact file
+
+modeAnyOrder :: (Request -> Request) -> FilePath -> IO a -> IO a
+modeAnyOrder redact file action = do
     interactions <- doesFileExist file >>= \ case
         False -> return []
         True -> loadTape file
@@ -55,23 +69,23 @@ modeAnyOrder file action = do
     let save newInteractions = unless (null newInteractions) $ do
             saveTape file (interactions ++ newInteractions)
 
-    captureInteractions save $ mockInteractions interactions action
+    captureInteractions redact save $ mockInteractions redact interactions action
 
-modeSequential :: HasCallStack => FilePath -> IO a -> IO a
-modeSequential file action = doesFileExist file >>= \ case
-    False -> record file action
+modeSequential :: HasCallStack => (Request -> Request) -> FilePath -> IO a -> IO a
+modeSequential redact file action = doesFileExist file >>= \ case
+    False -> record redact file action
     True -> do
         interactions <- loadTape file
-        playInOrder interactions action
+        playInOrder redact interactions action
 
 recordTape :: Tape -> IO a -> IO a
-recordTape (Tape file _) = record file
+recordTape (Tape file _ redact) = record redact file
 
-record :: FilePath -> IO a -> IO a
-record = captureInteractions . saveTape
+record :: (Request -> Request) -> FilePath -> IO a -> IO a
+record redact = captureInteractions redact . saveTape
 
-captureInteractions :: ([Interaction] -> IO ()) -> IO a -> IO a
-captureInteractions consumeCaptured action = do
+captureInteractions :: (Request -> Request) -> ([Interaction] -> IO ()) -> IO a -> IO a
+captureInteractions redact consumeCaptured action = do
 
     ref <- newIORef []
 
@@ -81,7 +95,7 @@ captureInteractions consumeCaptured action = do
                 (req, response) <- makeRequest request manager
                 simpleResponse <- toSimpleResponse response
                 return (req, simpleResponse)
-            captureInteraction =<< Interaction <$> toSimpleRequest request <*> pure response
+            captureInteraction =<< Interaction <$> (redact <$> toSimpleRequest request) <*> pure response
             (,) r <$> fromSimpleResponse request response
 
         captureInteraction :: Interaction -> IO ()
@@ -93,30 +107,30 @@ captureInteractions consumeCaptured action = do
     withRequestAction capture action `finally` (consumeCaptured =<< getCaptured)
 
 playTape :: HasCallStack => Tape -> IO a -> IO a
-playTape (Tape file mode) action = do
+playTape (Tape file mode redact) action = do
     interactions <- loadTape file
     case mode of
-        AnyOrder -> mockInteractions interactions action
-        Sequential -> playInOrder interactions action
+        AnyOrder -> mockInteractions redact interactions action
+        Sequential -> playInOrder redact interactions action
 
-mockInteractions :: [Interaction] -> IO a -> IO a
-mockInteractions = go
+mockInteractions :: (Request -> Request) -> [Interaction] -> IO a -> IO a
+mockInteractions redact = go
   where
     go :: [Interaction] -> IO a -> IO a
     go (map fromInteraction -> interactions) = withRequestAction $ \ makeRequest clientRequest manager -> do
         request <- toSimpleRequest clientRequest
-        case lookup request interactions of
+        case lookup (redact request) interactions of
             Just response -> (,) clientRequest <$> fromSimpleResponse clientRequest response
             Nothing -> makeRequest clientRequest manager
 
     fromInteraction :: Interaction -> (Request, Response)
     fromInteraction (Interaction request response) = (request, response)
 
-playInOrder :: HasCallStack => [Interaction] -> IO a -> IO a
-playInOrder = mockRequestChain . map toRequestAction
+playInOrder :: HasCallStack => (Request -> Request) -> [Interaction] -> IO a -> IO a
+playInOrder redact = mockRequestChain . map toRequestAction
   where
     toRequestAction :: Interaction -> Request -> IO Response
-    toRequestAction (Interaction request response) = mkRequestAction request response
+    toRequestAction (Interaction request response) = mkRequestAction request response . redact
 
 saveTape :: FilePath -> [Interaction] -> IO ()
 saveTape file interactions = do
