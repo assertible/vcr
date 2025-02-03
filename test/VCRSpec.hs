@@ -4,6 +4,7 @@ module VCRSpec (spec) where
 import           Test.Hspec
 import           Test.Mockery.Directory
 
+import           Data.Functor
 import qualified Data.ByteString.Lazy as L
 import qualified Network.HTTP.Client as Client
 import           Network.HTTP.Client.TLS (getGlobalManager)
@@ -14,21 +15,51 @@ import           WebMock
 
 import           VCR
 
-makeRequest :: String -> IO (Client.Response L.ByteString)
-makeRequest url = do
+makeRequest :: String -> [Header] -> IO (Client.Response L.ByteString)
+makeRequest url headers = do
     manager <- getGlobalManager
     request <- Client.parseUrlThrow url
-    Client.httpLbs request manager
+    Client.httpLbs request {Client.requestHeaders = headers} manager
 
 httpException :: Client.HttpException -> Bool
 httpException _ = True
 
+tape :: Tape
+tape = "tape.yaml"
+
 spec :: Spec
 spec = around_ inTempDirectory $ do
     describe "withTape" $ do
+        context "with an Authorization header" $ do
+            let
+                headers :: [Header]
+                headers = [(hAuthorization, "Bearer sk-RfAZfajzapKps4anC6ej8rhSnMxf5sLd")]
+
+                request :: Request
+                request = "http://httpbin.org/status/200" {requestHeaders = headers}
+
+                response :: Response
+                response = "" {responseStatus = status200}
+
+            context "when mode is AnyOrder" $ do
+                it "redacts the Authorization header" $ do
+                    mockRequest request response $ do
+                        withTape tape {tapeMode = AnyOrder}$ do
+                            void $ makeRequest "http://httpbin.org/status/200" headers
+                    [Interaction recordedRequest _ ] <- loadTape (tapeFile tape)
+                    requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
+
+            context "when mode is Sequential" $ do
+                it "redacts the Authorization header" $ do
+                    mockRequest request response $ do
+                        withTape tape {tapeMode = Sequential} $ do
+                            void $ makeRequest "http://httpbin.org/status/200" headers
+                    [Interaction recordedRequest _ ] <- loadTape (tapeFile tape)
+                    requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
+
         context "on exception" $ do
             it "writes tape" $ do
                 mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} $ do
-                    withTape "tape.yaml" (makeRequest "http://httpbin.org/status/500")
+                    withTape tape (makeRequest "http://httpbin.org/status/500" [])
                         `shouldThrow` httpException
-                    doesFileExist "tape.yaml" `shouldReturn` True
+                doesFileExist (tapeFile tape) `shouldReturn` True
