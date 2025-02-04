@@ -6,6 +6,8 @@ cabal-version: 1.12
 
 name:           vcr
 version:        0.0.0
+license:        MIT
+license-file:   LICENSE
 build-type:     Simple
 
 library
@@ -19,7 +21,7 @@ library
       src
   build-depends:
       HUnit
-    , base
+    , base ==4.*
     , bytestring
     , case-insensitive
     , directory
@@ -40,9 +42,11 @@ test-suite spec
       Paths_vcr
   hs-source-dirs:
       test
+  build-tool-depends:
+      hspec-discover:hspec-discover
   build-depends:
       HUnit
-    , base
+    , base ==4.*
     , bytestring
     , case-insensitive
     , directory

@@ -1,7 +1,7 @@
 name: vcr
 
 dependencies:
-  - base
+  - base == 4.*
   - bytestring
   - text
   - filepath
@@ -25,3 +25,4 @@ tests:
       - hspec
       - mockery
       - http-client-tls
+    build-tools: hspec-discover
