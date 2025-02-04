@@ -82,7 +82,7 @@ captureInteractions consumeCaptured action = do
                 simpleResponse <- toSimpleResponse response
                 return (req, simpleResponse)
             captureInteraction =<< Interaction <$> toSimpleRequest request <*> pure response
-            (,) r <$> fromSimpleResponse response
+            (,) r <$> fromSimpleResponse request response
 
         captureInteraction :: Interaction -> IO ()
         captureInteraction x = atomicModifyIORef ref $ \ xs -> (x : xs, ())
@@ -106,7 +106,7 @@ mockInteractions = go
     go (map fromInteraction -> interactions) = withRequestAction $ \ makeRequest clientRequest manager -> do
         request <- toSimpleRequest clientRequest
         case lookup request interactions of
-            Just response -> (,) clientRequest <$> fromSimpleResponse response
+            Just response -> (,) clientRequest <$> fromSimpleResponse clientRequest response
             Nothing -> makeRequest clientRequest manager
 
     fromInteraction :: Interaction -> (Request, Response)

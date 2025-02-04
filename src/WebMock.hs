@@ -68,7 +68,7 @@ unsafeMockRequest :: (Request -> IO Response) -> IO ()
 unsafeMockRequest f = writeIORef Client.requestAction requestAction
   where
     requestAction request _manager = do
-        ((,) request) <$> (toSimpleRequest request >>= f >>= fromSimpleResponse)
+        ((,) request) <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
 
 mockRequest :: HasCallStack => Request -> Response -> IO a -> IO a
 mockRequest expectedRequest response action = protectRequestAction $ do
@@ -87,7 +87,7 @@ mockRequestChain xs action = do
             readIORef ref >>= \ case
                 z:zs -> do
                     writeIORef ref zs
-                    (,) clientRequest <$> (z request >>= fromSimpleResponse)
+                    (,) clientRequest <$> (z request >>= fromSimpleResponse clientRequest)
                 [] -> assertFailure $ "Unexpected HTTP request: " ++ show request
 
         checkLeftover :: IO ()
@@ -139,8 +139,8 @@ toSimpleResponse r = do
     , responseBody = L.fromChunks c
     }
 
-fromSimpleResponse :: Response -> IO (Client.Response Client.BodyReader)
-fromSimpleResponse Response{..} = do
+fromSimpleResponse :: Client.Request -> Response -> IO (Client.Response Client.BodyReader)
+fromSimpleResponse request Response{..} = do
     ref <- newIORef (L.toStrict responseBody)
     return $ Client.Response {
       Client.responseStatus = responseStatus
@@ -149,6 +149,6 @@ fromSimpleResponse Response{..} = do
     , Client.responseBody = atomicModifyIORef ref (\ c -> ("", c))
     , Client.responseCookieJar = mempty
     , Client.responseClose' = Client.ResponseClose $ return ()
-    , Client.responseOriginalRequest = error "responseOriginalRequest not supported"
+    , Client.responseOriginalRequest = request { Client.requestBody = mempty }
     , Client.responseEarlyHints = mempty
     }
