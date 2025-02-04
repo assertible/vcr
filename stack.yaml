@@ -6,7 +6,7 @@ packages:
 
 extra-deps:
   - github: assertible/http-client
-    commit: 65b5c5aa8947d2cf43f9afbef52ecca25c19cfba
+    commit: assertible-http-client-0.7.17
     subdirs:
       - http-client
       - http-conduit
