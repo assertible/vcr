@@ -36,9 +36,9 @@ import           System.FilePath
 import           WebMock
 
 data Tape = Tape {
-  tapeFile :: FilePath
-, tapeMode :: Mode
-, tapeRedact :: Request -> Request
+  file :: FilePath
+, mode :: Mode
+, redact :: Request -> Request
 }
 
 instance IsString Tape where
