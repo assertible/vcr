@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 module VCRSpec (spec) where
 
 import           Test.Hspec
@@ -44,17 +45,17 @@ spec = around_ inTempDirectory $ do
             context "when mode is AnyOrder" $ do
                 it "redacts the Authorization header" $ do
                     mockRequest request response $ do
-                        withTape tape {tapeMode = AnyOrder}$ do
+                        withTape tape {mode = AnyOrder} $ do
                             void $ makeRequest "http://httpbin.org/status/200" headers
-                    [Interaction recordedRequest _ ] <- loadTape (tapeFile tape)
+                    [Interaction recordedRequest _ ] <- loadTape tape.file
                     requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
             context "when mode is Sequential" $ do
                 it "redacts the Authorization header" $ do
                     mockRequest request response $ do
-                        withTape tape {tapeMode = Sequential} $ do
+                        withTape tape {mode = Sequential} $ do
                             void $ makeRequest "http://httpbin.org/status/200" headers
-                    [Interaction recordedRequest _ ] <- loadTape (tapeFile tape)
+                    [Interaction recordedRequest _ ] <- loadTape tape.file
                     requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
         context "on exception" $ do
@@ -62,4 +63,4 @@ spec = around_ inTempDirectory $ do
                 mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} $ do
                     withTape tape (makeRequest "http://httpbin.org/status/500" [])
                         `shouldThrow` httpException
-                doesFileExist (tapeFile tape) `shouldReturn` True
+                doesFileExist tape.file `shouldReturn` True
