@@ -1,5 +1,7 @@
 name: vcr
 
+ghc-options: -Wall
+
 dependencies:
   - base == 4.*
   - bytestring
