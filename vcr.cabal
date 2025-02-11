@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.38.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -19,6 +19,7 @@ library
       Paths_vcr
   hs-source-dirs:
       src
+  ghc-options: -Wall
   build-depends:
       HUnit
     , base ==4.*
@@ -46,6 +47,7 @@ test-suite spec
   hs-source-dirs:
       src
       test
+  ghc-options: -Wall
   cpp-options: -DTEST
   build-tool-depends:
       hspec-discover:hspec-discover
