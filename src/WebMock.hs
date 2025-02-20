@@ -4,6 +4,7 @@
 module WebMock (
   Request (..)
 , Response (..)
+, disableRequests
 , unsafeMockRequest
 , mockRequest
 , mockRequestChain
@@ -77,18 +78,28 @@ mockRequest expectedRequest response action = protectRequestAction $ do
         return response
     action
 
+disableRequests :: HasCallStack => IO a -> IO a
+disableRequests action = do
+    let
+        requestAction :: RequestAction -> RequestAction
+        requestAction _makeRequest clientRequest _manager = do
+          request <- toSimpleRequest clientRequest
+          unexpectedRequest request
+    withRequestAction requestAction action
+
 mockRequestChain :: HasCallStack => [Request -> IO Response] -> IO a -> IO a
 mockRequestChain xs action = do
     ref <- newIORef xs
 
-    let requestAction :: a -> RequestAction
+    let
+        requestAction :: a -> RequestAction
         requestAction _ clientRequest _manager = do
             request <- toSimpleRequest clientRequest
             readIORef ref >>= \ case
                 z:zs -> do
                     writeIORef ref zs
                     (,) clientRequest <$> (z request >>= fromSimpleResponse clientRequest)
-                [] -> assertFailure $ "Unexpected HTTP request: " ++ show request
+                [] -> unexpectedRequest request
 
         checkLeftover :: IO ()
         checkLeftover = do
@@ -99,6 +110,9 @@ mockRequestChain xs action = do
                 assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
 
     withRequestAction requestAction action <* checkLeftover
+
+unexpectedRequest :: Request -> IO a
+unexpectedRequest request = assertFailure $ "Unexpected HTTP request: " ++ show request
 
 mkRequestActions :: HasCallStack => [(Request, Response)] -> [Request -> IO Response]
 mkRequestActions = map (uncurry mkRequestAction)
@@ -141,12 +155,12 @@ toSimpleResponse r = do
 
 fromSimpleResponse :: Client.Request -> Response -> IO (Client.Response Client.BodyReader)
 fromSimpleResponse request Response{..} = do
-    ref <- newIORef (L.toStrict responseBody)
+    body <- Client.constBodyReader (L.toChunks responseBody)
     return $ Client.Response {
       Client.responseStatus = responseStatus
     , Client.responseVersion = http11
     , Client.responseHeaders = responseHeaders
-    , Client.responseBody = atomicModifyIORef ref (\ c -> ("", c))
+    , Client.responseBody = body
     , Client.responseCookieJar = mempty
     , Client.responseClose' = Client.ResponseClose $ return ()
     , Client.responseOriginalRequest = request { Client.requestBody = mempty }

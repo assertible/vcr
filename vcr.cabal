@@ -19,6 +19,8 @@ library
       Paths_vcr
   hs-source-dirs:
       src
+  default-extensions:
+      BlockArguments
   ghc-options: -Wall
   build-depends:
       HUnit
@@ -47,6 +49,8 @@ test-suite spec
   hs-source-dirs:
       src
       test
+  default-extensions:
+      BlockArguments
   ghc-options: -Wall
   cpp-options: -DTEST
   build-tool-depends:

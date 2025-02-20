@@ -2,6 +2,9 @@ name: vcr
 
 ghc-options: -Wall
 
+default-extensions:
+  - BlockArguments
+
 dependencies:
   - base == 4.*
   - bytestring
