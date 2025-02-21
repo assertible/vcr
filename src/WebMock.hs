@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module WebMock (
@@ -21,21 +20,21 @@ module WebMock (
 , toSimpleResponse
 ) where
 
-import           Control.Exception
-import           Control.Monad
-import qualified Data.ByteString.Lazy as L
-import           Data.IORef
-import           Data.String
-import qualified Data.Text as T
-import           Data.Text.Encoding (encodeUtf8)
-import           GHC.Stack (HasCallStack)
-import           Network.HTTP.Client.Internal (Manager, BodyReader)
-import qualified Network.HTTP.Client.Internal as Client
-import           Network.HTTP.Types
-import           Network.URI (uriToString)
-import           Test.HUnit
+import Imports
 
-import           WebMock.Util
+import Control.Exception
+import Data.ByteString.Lazy qualified as L
+import Data.String
+import Data.Text qualified as T
+import Data.Text.Encoding (encodeUtf8)
+import GHC.Stack (HasCallStack)
+import Network.HTTP.Client.Internal (Manager, BodyReader)
+import Network.HTTP.Client.Internal qualified as Client
+import Network.HTTP.Types
+import Network.URI (uriToString)
+import Test.HUnit
+
+import WebMock.Util
 
 data Request = Request {
   requestMethod  :: Method
@@ -67,7 +66,7 @@ instance IsString Response where
   fromString body = Response status200 [] (L.fromStrict $ encodeUtf8 $ T.pack body)
 
 unsafeMockRequest :: (Request -> IO Response) -> IO ()
-unsafeMockRequest f = writeIORef Client.requestAction requestAction
+unsafeMockRequest f = atomicWriteIORef Client.requestAction requestAction
   where
     requestAction :: ClientRequestAction
     requestAction request _manager = do
@@ -90,25 +89,23 @@ disableRequests action = do
   withRequestAction requestAction action
 
 mockRequestChain :: HasCallStack => [Request -> IO Response] -> IO a -> IO a
-mockRequestChain xs action = do
-  ref <- newIORef xs
+mockRequestChain interactions action = do
+  ref <- newIORef interactions
 
   let
-    requestAction :: a -> RequestAction
-    requestAction _ clientRequest = do
+    requestAction :: RequestAction -> RequestAction
+    requestAction _makeRequest clientRequest = do
       request <- toSimpleRequest clientRequest
-      readIORef ref >>= \ case
-        z:zs -> do
-          writeIORef ref zs
-          z request
-        [] -> unexpectedRequest request
+      atomicModifyIORef' ref (drop 1 &&& listToMaybe) >>= \ case
+        Just interaction -> interaction request
+        Nothing -> unexpectedRequest request
 
     checkLeftover :: IO ()
     checkLeftover = do
-      leftover <- length <$> readIORef ref
+      leftover <- length <$> atomicReadIORef ref
       when (leftover /= 0) $ do
         let
-          total = length xs
+          total = length interactions
           actual = total - leftover
         assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
 
@@ -140,10 +137,10 @@ withRequestAction action = bracket setup restore . const
         makeRequest = action $ fmap snd . flip makeClientRequest manager >=> toSimpleResponse
 
     setup :: IO ClientRequestAction
-    setup = atomicModifyIORef Client.requestAction $ \ old -> (lift old, old)
+    setup = atomicModifyIORef' Client.requestAction $ \ old -> (lift old, old)
 
     restore :: ClientRequestAction -> IO ()
-    restore = writeIORef Client.requestAction
+    restore = atomicWriteIORef Client.requestAction
 
 protectRequestAction :: IO a -> IO a
 protectRequestAction = withRequestAction id

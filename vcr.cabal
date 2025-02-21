@@ -12,6 +12,7 @@ build-type:     Simple
 
 library
   exposed-modules:
+      Imports
       VCR
       WebMock
       WebMock.Util
@@ -21,6 +22,7 @@ library
       src
   default-extensions:
       BlockArguments
+      NoImplicitPrelude
   ghc-options: -Wall
   build-depends:
       HUnit
@@ -34,12 +36,25 @@ library
     , network-uri
     , text
     , yaml
-  default-language: Haskell2010
+  default-language: GHC2021
+  if impl(ghc < 9.10)
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DisambiguateRecordFields
+        ExplicitNamespaces
+        GADTs
+        MonoLocalBinds
+        LambdaCase
+        RoleAnnotations
+  else
+    default-language: GHC2024
 
 test-suite spec
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Imports
       VCR
       WebMock
       WebMock.Util
@@ -51,6 +66,7 @@ test-suite spec
       test
   default-extensions:
       BlockArguments
+      NoImplicitPrelude
   ghc-options: -Wall
   cpp-options: -DTEST
   build-tool-depends:
@@ -70,4 +86,16 @@ test-suite spec
     , network-uri
     , text
     , yaml
-  default-language: Haskell2010
+  default-language: GHC2021
+  if impl(ghc < 9.10)
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DisambiguateRecordFields
+        ExplicitNamespaces
+        GADTs
+        MonoLocalBinds
+        LambdaCase
+        RoleAnnotations
+  else
+    default-language: GHC2024

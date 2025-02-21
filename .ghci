@@ -1,2 +1,4 @@
 :set -isrc -itest -DTEST
+:set -XGHC2024
 :set -XBlockArguments
+:set -XNoImplicitPrelude

@@ -1,6 +1,4 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -16,26 +14,25 @@ module VCR (
 #endif
 ) where
 
-import           Control.Exception
-import           Control.Monad
-import           Data.Text (Text)
-import           Data.Ord
-import           Data.Maybe
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.CaseInsensitive as CI
-import           Data.IORef
-import           Data.String
-import           Data.Yaml
-import qualified Data.Yaml as Yaml
-import qualified Data.Yaml.Pretty as Yaml
-import           GHC.Stack (HasCallStack)
-import           System.Directory
-import           System.FilePath
-import qualified Network.HTTP.Client.Internal as Client
+import Imports
 
-import           WebMock hiding (toSimpleRequest)
-import qualified WebMock
+import Control.Exception
+import Data.Text (Text)
+import Data.Ord
+import Data.ByteString.Char8 qualified as B
+import Data.ByteString.Lazy.Char8 qualified as L
+import Data.CaseInsensitive qualified as CI
+import Data.String
+import Data.Yaml
+import Data.Yaml qualified as Yaml
+import Data.Yaml.Pretty qualified as Yaml
+import GHC.Stack (HasCallStack)
+import System.Directory
+import System.FilePath
+import Network.HTTP.Client.Internal qualified as Client
+
+import WebMock hiding (toSimpleRequest)
+import WebMock qualified
 
 data Tape = Tape {
   file :: FilePath
@@ -100,10 +97,10 @@ captureInteractions redact consumeCaptured action = do
       return response
 
     captureInteraction :: Interaction -> IO ()
-    captureInteraction x = atomicModifyIORef ref $ \ xs -> (x : xs, ())
+    captureInteraction x = atomicModifyIORef' ref $ \ xs -> (x : xs, ())
 
     getCaptured :: IO [Interaction]
-    getCaptured = reverse <$> readIORef ref
+    getCaptured = reverse <$> atomicReadIORef ref
 
   withRequestAction capture action `finally` (consumeCaptured =<< getCaptured)
 
