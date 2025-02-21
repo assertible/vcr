@@ -95,9 +95,9 @@ captureInteractions redact consumeCaptured action = do
   let
     capture :: RequestAction -> RequestAction
     capture makeRequest request = do
-      response <- makeRequest request >>= toSimpleResponse
+      response <- makeRequest request
       captureInteraction =<< Interaction <$> toSimpleRequest redact request <*> pure response
-      fromSimpleResponse request response
+      return response
 
     captureInteraction :: Interaction -> IO ()
     captureInteraction x = atomicModifyIORef ref $ \ xs -> (x : xs, ())
@@ -121,7 +121,7 @@ mockInteractions redact = go
     go (map fromInteraction -> interactions) = withRequestAction $ \ makeRequest clientRequest -> do
       request <- toSimpleRequest redact clientRequest
       case lookup request interactions of
-        Just response -> fromSimpleResponse clientRequest response
+        Just response -> return response
         Nothing -> makeRequest clientRequest
 
     fromInteraction :: Interaction -> (Request, Response)

@@ -69,6 +69,7 @@ instance IsString Response where
 unsafeMockRequest :: (Request -> IO Response) -> IO ()
 unsafeMockRequest f = writeIORef Client.requestAction requestAction
   where
+    requestAction :: ClientRequestAction
     requestAction request _manager = do
       (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
 
@@ -99,7 +100,7 @@ mockRequestChain xs action = do
       readIORef ref >>= \ case
         z:zs -> do
           writeIORef ref zs
-          z request >>= fromSimpleResponse clientRequest
+          z request
         [] -> unexpectedRequest request
 
     checkLeftover :: IO ()
@@ -124,7 +125,7 @@ mkRequestAction expected response actual = do
   actual @?= expected
   return response
 
-type RequestAction = Client.Request -> IO (Client.Response BodyReader)
+type RequestAction = Client.Request -> IO Response
 
 type ClientRequestAction = Client.Request -> Manager -> IO (Client.Request, Client.Response BodyReader)
 
@@ -132,11 +133,11 @@ withRequestAction :: (RequestAction -> RequestAction) -> IO a -> IO a
 withRequestAction action = bracket setup restore . const
   where
     lift :: ClientRequestAction -> ClientRequestAction
-    lift f request manager = do
-      (,) request <$> makeRequest request
+    lift makeClientRequest request manager = do
+      (,) request <$> do makeRequest request >>= fromSimpleResponse request
       where
         makeRequest :: RequestAction
-        makeRequest = action (fmap snd . flip f manager)
+        makeRequest = action $ fmap snd . flip makeClientRequest manager >=> toSimpleResponse
 
     setup :: IO ClientRequestAction
     setup = atomicModifyIORef Client.requestAction $ \ old -> (lift old, old)
