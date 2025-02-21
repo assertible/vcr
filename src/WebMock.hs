@@ -143,7 +143,13 @@ withRequestAction action = bracket setup restore . const
     restore = atomicWriteIORef Client.requestAction
 
 protectRequestAction :: IO a -> IO a
-protectRequestAction = withRequestAction id
+protectRequestAction = bracket save restore . const
+  where
+    save :: IO ClientRequestAction
+    save = atomicReadIORef Client.requestAction
+
+    restore :: ClientRequestAction -> IO ()
+    restore = atomicWriteIORef Client.requestAction
 
 toSimpleRequest :: Client.Request -> IO Request
 toSimpleRequest r = do
