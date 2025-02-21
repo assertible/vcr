@@ -18,9 +18,9 @@ import           VCR
 
 makeRequest :: String -> [Header] -> IO (Client.Response L.ByteString)
 makeRequest url headers = do
-    manager <- getGlobalManager
-    request <- Client.parseUrlThrow url
-    Client.httpLbs request {Client.requestHeaders = headers} manager
+  manager <- getGlobalManager
+  request <- Client.parseUrlThrow url
+  Client.httpLbs request {Client.requestHeaders = headers} manager
 
 httpException :: Client.HttpException -> Bool
 httpException _ = True
@@ -30,37 +30,37 @@ tape = "tape.yaml"
 
 spec :: Spec
 spec = around_ inTempDirectory $ do
-    describe "withTape" $ do
-        context "with an Authorization header" $ do
-            let
-                headers :: [Header]
-                headers = [(hAuthorization, "Bearer sk-RfAZfajzapKps4anC6ej8rhSnMxf5sLd")]
+  describe "withTape" $ do
+    context "with an Authorization header" $ do
+      let
+        headers :: [Header]
+        headers = [(hAuthorization, "Bearer sk-RfAZfajzapKps4anC6ej8rhSnMxf5sLd")]
 
-                request :: Request
-                request = "http://httpbin.org/status/200" {requestHeaders = headers}
+        request :: Request
+        request = "http://httpbin.org/status/200" {requestHeaders = headers}
 
-                response :: Response
-                response = "" {responseStatus = status200}
+        response :: Response
+        response = "" {responseStatus = status200}
 
-            context "when mode is AnyOrder" $ do
-                it "redacts the Authorization header" $ do
-                    mockRequest request response $ do
-                        withTape tape {mode = AnyOrder} $ do
-                            void $ makeRequest "http://httpbin.org/status/200" headers
-                    [Interaction recordedRequest _ ] <- loadTape tape.file
-                    requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
+      context "when mode is AnyOrder" $ do
+        it "redacts the Authorization header" $ do
+          mockRequest request response $ do
+            withTape tape {mode = AnyOrder} $ do
+              void $ makeRequest "http://httpbin.org/status/200" headers
+          [Interaction recordedRequest _ ] <- loadTape tape.file
+          requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
-            context "when mode is Sequential" $ do
-                it "redacts the Authorization header" $ do
-                    mockRequest request response $ do
-                        withTape tape {mode = Sequential} $ do
-                            void $ makeRequest "http://httpbin.org/status/200" headers
-                    [Interaction recordedRequest _ ] <- loadTape tape.file
-                    requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
+      context "when mode is Sequential" $ do
+        it "redacts the Authorization header" $ do
+          mockRequest request response $ do
+            withTape tape {mode = Sequential} $ do
+              void $ makeRequest "http://httpbin.org/status/200" headers
+          [Interaction recordedRequest _ ] <- loadTape tape.file
+          requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
-        context "on exception" $ do
-            it "writes tape" $ do
-                mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} $ do
-                    withTape tape (makeRequest "http://httpbin.org/status/500" [])
-                        `shouldThrow` httpException
-                doesFileExist tape.file `shouldReturn` True
+    context "on exception" $ do
+      it "writes tape" $ do
+        mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} $ do
+          withTape tape (makeRequest "http://httpbin.org/status/500" [])
+            `shouldThrow` httpException
+        doesFileExist tape.file `shouldReturn` True

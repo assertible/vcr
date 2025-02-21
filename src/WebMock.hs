@@ -45,17 +45,17 @@ data Request = Request {
 } deriving Eq
 
 instance IsString Request where
-    fromString url = Request "GET" url [] ""
+  fromString url = Request "GET" url [] ""
 
 instance Show Request where
-    show Request{..} = unlines [
-          "Request {"
-        , "  requestMethod = " ++ show requestMethod
-        , ", requestUrl = " ++ show requestUrl
-        , ", requestHeaders = " ++ show requestHeaders
-        , ", requestBody = " ++ show requestBody
-        , "}"
-        ]
+  show Request{..} = unlines [
+      "Request {"
+    , "  requestMethod = " ++ show requestMethod
+    , ", requestUrl = " ++ show requestUrl
+    , ", requestHeaders = " ++ show requestHeaders
+    , ", requestBody = " ++ show requestBody
+    , "}"
+    ]
 
 data Response = Response {
   responseStatus  :: Status
@@ -64,53 +64,54 @@ data Response = Response {
 } deriving (Eq, Show)
 
 instance IsString Response where
-    fromString body = Response status200 [] (L.fromStrict $ encodeUtf8 $ T.pack body)
+  fromString body = Response status200 [] (L.fromStrict $ encodeUtf8 $ T.pack body)
 
 unsafeMockRequest :: (Request -> IO Response) -> IO ()
 unsafeMockRequest f = writeIORef Client.requestAction requestAction
   where
     requestAction request _manager = do
-        ((,) request) <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
+      (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
 
 mockRequest :: HasCallStack => Request -> Response -> IO a -> IO a
 mockRequest expectedRequest response action = protectRequestAction $ do
-    unsafeMockRequest $ \ request -> do
-        request @?= expectedRequest
-        return response
-    action
+  unsafeMockRequest $ \ request -> do
+    request @?= expectedRequest
+    return response
+  action
 
 disableRequests :: HasCallStack => IO a -> IO a
 disableRequests action = do
-    let
-        requestAction :: RequestAction -> RequestAction
-        requestAction _makeRequest clientRequest = do
-          request <- toSimpleRequest clientRequest
-          unexpectedRequest request
-    withRequestAction requestAction action
+  let
+    requestAction :: RequestAction -> RequestAction
+    requestAction _makeRequest clientRequest = do
+      request <- toSimpleRequest clientRequest
+      unexpectedRequest request
+  withRequestAction requestAction action
 
 mockRequestChain :: HasCallStack => [Request -> IO Response] -> IO a -> IO a
 mockRequestChain xs action = do
-    ref <- newIORef xs
+  ref <- newIORef xs
 
-    let
-        requestAction :: a -> RequestAction
-        requestAction _ clientRequest = do
-            request <- toSimpleRequest clientRequest
-            readIORef ref >>= \ case
-                z:zs -> do
-                    writeIORef ref zs
-                    (z request >>= fromSimpleResponse clientRequest)
-                [] -> unexpectedRequest request
+  let
+    requestAction :: a -> RequestAction
+    requestAction _ clientRequest = do
+      request <- toSimpleRequest clientRequest
+      readIORef ref >>= \ case
+        z:zs -> do
+          writeIORef ref zs
+          z request >>= fromSimpleResponse clientRequest
+        [] -> unexpectedRequest request
 
-        checkLeftover :: IO ()
-        checkLeftover = do
-            leftover <- length <$> readIORef ref
-            when (leftover /= 0) $ do
-                let total = length xs
-                    actual = total - leftover
-                assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
+    checkLeftover :: IO ()
+    checkLeftover = do
+      leftover <- length <$> readIORef ref
+      when (leftover /= 0) $ do
+        let
+          total = length xs
+          actual = total - leftover
+        assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
 
-    withRequestAction requestAction action <* checkLeftover
+  withRequestAction requestAction action <* checkLeftover
 
 unexpectedRequest :: Request -> IO a
 unexpectedRequest request = assertFailure $ "Unexpected HTTP request: " ++ show request
@@ -120,8 +121,8 @@ mkRequestActions = map (uncurry mkRequestAction)
 
 mkRequestAction :: HasCallStack => Request -> Response -> Request -> IO Response
 mkRequestAction expected response actual = do
-    actual @?= expected
-    return response
+  actual @?= expected
+  return response
 
 type RequestAction = Client.Request -> IO (Client.Response BodyReader)
 
@@ -148,34 +149,34 @@ protectRequestAction = withRequestAction id
 
 toSimpleRequest :: Client.Request -> IO Request
 toSimpleRequest r = do
-    body <- requestBodyToByteString (Client.requestBody r)
-    return $ Request {
-      requestMethod = Client.method r
-    , requestUrl = uriToString id (Client.getUri r) ""
-    , requestHeaders = Client.requestHeaders r
-    , requestBody = body
-    }
+  body <- requestBodyToByteString (Client.requestBody r)
+  return $ Request {
+    requestMethod = Client.method r
+  , requestUrl = uriToString id (Client.getUri r) ""
+  , requestHeaders = Client.requestHeaders r
+  , requestBody = body
+  }
 
 toSimpleResponse :: Client.Response BodyReader -> IO Response
 toSimpleResponse r = do
-    c <- Client.brConsume (Client.responseBody r)
-    Client.responseClose r
-    return $ Response {
-      responseStatus = Client.responseStatus r
-    , responseHeaders = Client.responseHeaders r
-    , responseBody = L.fromChunks c
-    }
+  c <- Client.brConsume (Client.responseBody r)
+  Client.responseClose r
+  return $ Response {
+    responseStatus = Client.responseStatus r
+  , responseHeaders = Client.responseHeaders r
+  , responseBody = L.fromChunks c
+  }
 
 fromSimpleResponse :: Client.Request -> Response -> IO (Client.Response BodyReader)
 fromSimpleResponse request Response{..} = do
-    body <- Client.constBodyReader (L.toChunks responseBody)
-    return $ Client.Response {
-      Client.responseStatus = responseStatus
-    , Client.responseVersion = http11
-    , Client.responseHeaders = responseHeaders
-    , Client.responseBody = body
-    , Client.responseCookieJar = mempty
-    , Client.responseClose' = Client.ResponseClose $ return ()
-    , Client.responseOriginalRequest = request { Client.requestBody = mempty }
-    , Client.responseEarlyHints = mempty
-    }
+  body <- Client.constBodyReader (L.toChunks responseBody)
+  return $ Client.Response {
+    Client.responseStatus = responseStatus
+  , Client.responseVersion = http11
+  , Client.responseHeaders = responseHeaders
+  , Client.responseBody = body
+  , Client.responseCookieJar = mempty
+  , Client.responseClose' = Client.ResponseClose $ return ()
+  , Client.responseOriginalRequest = request { Client.requestBody = mempty }
+  , Client.responseEarlyHints = mempty
+  }

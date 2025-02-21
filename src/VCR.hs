@@ -44,10 +44,10 @@ data Tape = Tape {
 }
 
 instance IsString Tape where
-    fromString file = Tape file AnyOrder redactAuthorization
+  fromString file = Tape file AnyOrder redactAuthorization
 
 data Mode = Sequential | AnyOrder
-    deriving (Eq, Show)
+  deriving (Eq, Show)
 
 redactAuthorization :: Request -> Request
 redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
@@ -59,26 +59,27 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
 
 withTape :: HasCallStack => Tape -> IO a -> IO a
 withTape (Tape file mode redact) = case mode of
-    AnyOrder -> modeAnyOrder redact file
-    Sequential -> modeSequential redact file
+  AnyOrder -> modeAnyOrder redact file
+  Sequential -> modeSequential redact file
 
 modeAnyOrder :: (Request -> Request) -> FilePath -> IO a -> IO a
 modeAnyOrder redact file action = do
-    interactions <- doesFileExist file >>= \ case
-        False -> return []
-        True -> loadTape file
+  interactions <- doesFileExist file >>= \ case
+    False -> return []
+    True -> loadTape file
 
-    let save newInteractions = unless (null newInteractions) $ do
-            saveTape file (interactions ++ newInteractions)
+  let
+    save newInteractions = unless (null newInteractions) $ do
+      saveTape file (interactions ++ newInteractions)
 
-    captureInteractions redact save $ mockInteractions redact interactions action
+  captureInteractions redact save $ mockInteractions redact interactions action
 
 modeSequential :: HasCallStack => (Request -> Request) -> FilePath -> IO a -> IO a
 modeSequential redact file action = doesFileExist file >>= \ case
-    False -> record redact file action
-    True -> do
-        interactions <- loadTape file
-        playInOrder redact interactions action
+  False -> record redact file action
+  True -> do
+    interactions <- loadTape file
+    playInOrder redact interactions action
 
 recordTape :: Tape -> IO a -> IO a
 recordTape (Tape file _ redact) = record redact file
@@ -89,38 +90,39 @@ record redact = captureInteractions redact . saveTape
 captureInteractions :: (Request -> Request) -> ([Interaction] -> IO ()) -> IO a -> IO a
 captureInteractions redact consumeCaptured action = do
 
-    ref <- newIORef []
+  ref <- newIORef []
 
-    let capture :: RequestAction -> RequestAction
-        capture makeRequest request = do
-            response <- makeRequest request >>= toSimpleResponse
-            captureInteraction =<< Interaction <$> toSimpleRequest redact request <*> pure response
-            fromSimpleResponse request response
+  let
+    capture :: RequestAction -> RequestAction
+    capture makeRequest request = do
+      response <- makeRequest request >>= toSimpleResponse
+      captureInteraction =<< Interaction <$> toSimpleRequest redact request <*> pure response
+      fromSimpleResponse request response
 
-        captureInteraction :: Interaction -> IO ()
-        captureInteraction x = atomicModifyIORef ref $ \ xs -> (x : xs, ())
+    captureInteraction :: Interaction -> IO ()
+    captureInteraction x = atomicModifyIORef ref $ \ xs -> (x : xs, ())
 
-        getCaptured :: IO [Interaction]
-        getCaptured = reverse <$> readIORef ref
+    getCaptured :: IO [Interaction]
+    getCaptured = reverse <$> readIORef ref
 
-    withRequestAction capture action `finally` (consumeCaptured =<< getCaptured)
+  withRequestAction capture action `finally` (consumeCaptured =<< getCaptured)
 
 playTape :: HasCallStack => Tape -> IO a -> IO a
 playTape (Tape file mode redact) action = do
-    interactions <- loadTape file
-    case mode of
-        AnyOrder -> mockInteractions redact interactions action
-        Sequential -> playInOrder redact interactions action
+  interactions <- loadTape file
+  case mode of
+    AnyOrder -> mockInteractions redact interactions action
+    Sequential -> playInOrder redact interactions action
 
 mockInteractions :: (Request -> Request) -> [Interaction] -> IO a -> IO a
 mockInteractions redact = go
   where
     go :: [Interaction] -> IO a -> IO a
     go (map fromInteraction -> interactions) = withRequestAction $ \ makeRequest clientRequest -> do
-        request <- toSimpleRequest redact clientRequest
-        case lookup request interactions of
-            Just response -> fromSimpleResponse clientRequest response
-            Nothing -> makeRequest clientRequest
+      request <- toSimpleRequest redact clientRequest
+      case lookup request interactions of
+        Just response -> fromSimpleResponse clientRequest response
+        Nothing -> makeRequest clientRequest
 
     fromInteraction :: Interaction -> (Request, Response)
     fromInteraction (Interaction request response) = (request, response)
@@ -136,8 +138,8 @@ toSimpleRequest redact = fmap redact . WebMock.toSimpleRequest
 
 saveTape :: FilePath -> [Interaction] -> IO ()
 saveTape file interactions = do
-    ensureDirectory file
-    B.writeFile file $ Yaml.encodePretty conf interactions
+  ensureDirectory file
+  B.writeFile file $ Yaml.encodePretty conf interactions
   where
     conf = Yaml.setConfCompare (comparing f) Yaml.defConfig
 
@@ -172,69 +174,69 @@ loadTape file = Yaml.decodeFileThrow file
 data Interaction = Interaction Request Response
 
 instance ToJSON Interaction where
-    toJSON (Interaction request response) = object [
-          "request" .= requestToJSON request
-        , "response" .= responseToJSON response
+  toJSON (Interaction request response) = object [
+        "request" .= requestToJSON request
+      , "response" .= responseToJSON response
+      ]
+    where
+      requestToJSON :: Request -> Value
+      requestToJSON Request{..} = object [
+          "method" .= B.unpack requestMethod
+        , "url" .= requestUrl
+        , "headers" .= headersToJSON requestHeaders
+        , "body" .= L.unpack requestBody
         ]
-      where
-        requestToJSON :: Request -> Value
-        requestToJSON Request{..} = object [
-              "method" .= B.unpack requestMethod
-            , "url" .= requestUrl
-            , "headers" .= headersToJSON requestHeaders
-            , "body" .= L.unpack requestBody
+
+      responseToJSON :: Response -> Value
+      responseToJSON Response{..} = object [
+          "status" .= statusToJSON responseStatus
+        , "headers" .= headersToJSON responseHeaders
+        , "body" .= L.unpack responseBody
+        ]
+        where
+          statusToJSON :: Status -> Value
+          statusToJSON (Status code message) = object [
+              "code" .= code
+            , "message" .= B.unpack message
             ]
 
-        responseToJSON :: Response -> Value
-        responseToJSON Response{..} = object [
-              "status" .= statusToJSON responseStatus
-            , "headers" .= headersToJSON responseHeaders
-            , "body" .= L.unpack responseBody
+      headersToJSON :: RequestHeaders -> Value
+      headersToJSON = toJSON . map headerToJSON
+        where
+          headerToJSON :: Header -> Value
+          headerToJSON (name, value) = object [
+              "name" .= B.unpack (CI.original name)
+            , "value" .= B.unpack value
             ]
-          where
-            statusToJSON :: Status -> Value
-            statusToJSON (Status code message) = object [
-                "code" .= code
-              , "message" .= B.unpack message
-              ]
-
-        headersToJSON :: RequestHeaders -> Value
-        headersToJSON = toJSON . map headerToJSON
-          where
-            headerToJSON :: Header -> Value
-            headerToJSON (name, value) = object [
-                "name" .= B.unpack (CI.original name)
-              , "value" .= B.unpack value
-              ]
 
 instance FromJSON Interaction where
-    parseJSON = withObject "Interaction" $ \ o -> Interaction
-        <$> (o .: "request" >>= requestFromJSON)
-        <*> (o .: "response" >>= responseFromJSON)
-      where
-        requestFromJSON :: Value -> Parser Request
-        requestFromJSON = withObject "Request" $ \ o ->
-            Request
-            <$> (B.pack <$> o .: "method")
-            <*> o .: "url"
-            <*> (o .: "headers" >>= headersFromJSON)
-            <*> (L.pack <$> o .: "body")
+  parseJSON = withObject "Interaction" $ \ o -> Interaction
+    <$> (o .: "request" >>= requestFromJSON)
+    <*> (o .: "response" >>= responseFromJSON)
+    where
+      requestFromJSON :: Value -> Parser Request
+      requestFromJSON = withObject "Request" $ \ o ->
+        Request
+        <$> (B.pack <$> o .: "method")
+        <*> o .: "url"
+        <*> (o .: "headers" >>= headersFromJSON)
+        <*> (L.pack <$> o .: "body")
 
-        responseFromJSON :: Value -> Parser Response
-        responseFromJSON = withObject "Response" $ \ o -> Response
-            <$> (o .: "status" >>= statusFromJSON)
-            <*> (o .: "headers" >>= headersFromJSON)
-            <*> (L.pack <$> o .: "body")
-          where
-            statusFromJSON :: Object -> Parser Status
-            statusFromJSON o = Status
-              <$> (o .: "code")
-              <*> (B.pack <$> o .: "message")
+      responseFromJSON :: Value -> Parser Response
+      responseFromJSON = withObject "Response" $ \ o -> Response
+        <$> (o .: "status" >>= statusFromJSON)
+        <*> (o .: "headers" >>= headersFromJSON)
+        <*> (L.pack <$> o .: "body")
+        where
+          statusFromJSON :: Object -> Parser Status
+          statusFromJSON o = Status
+            <$> (o .: "code")
+            <*> (B.pack <$> o .: "message")
 
-        headersFromJSON :: [Object] -> Parser RequestHeaders
-        headersFromJSON = mapM headerFromJSON
-          where
-            headerFromJSON :: Object -> Parser Header
-            headerFromJSON o = (,)
-              <$> (CI.mk . B.pack <$> o .: "name")
-              <*> (B.pack <$> o .: "value")
+      headersFromJSON :: [Object] -> Parser RequestHeaders
+      headersFromJSON = mapM headerFromJSON
+        where
+          headerFromJSON :: Object -> Parser Header
+          headerFromJSON o = (,)
+            <$> (CI.mk . B.pack <$> o .: "name")
+            <*> (B.pack <$> o .: "value")
