@@ -29,6 +29,7 @@ import           Data.String
 import qualified Data.Text as T
 import           Data.Text.Encoding (encodeUtf8)
 import           GHC.Stack (HasCallStack)
+import           Network.HTTP.Client.Internal (Manager, BodyReader)
 import qualified Network.HTTP.Client.Internal as Client
 import           Network.HTTP.Types
 import           Network.URI (uriToString)
@@ -82,7 +83,7 @@ disableRequests :: HasCallStack => IO a -> IO a
 disableRequests action = do
     let
         requestAction :: RequestAction -> RequestAction
-        requestAction _makeRequest clientRequest _manager = do
+        requestAction _makeRequest clientRequest = do
           request <- toSimpleRequest clientRequest
           unexpectedRequest request
     withRequestAction requestAction action
@@ -93,12 +94,12 @@ mockRequestChain xs action = do
 
     let
         requestAction :: a -> RequestAction
-        requestAction _ clientRequest _manager = do
+        requestAction _ clientRequest = do
             request <- toSimpleRequest clientRequest
             readIORef ref >>= \ case
                 z:zs -> do
                     writeIORef ref zs
-                    (,) clientRequest <$> (z request >>= fromSimpleResponse clientRequest)
+                    (z request >>= fromSimpleResponse clientRequest)
                 [] -> unexpectedRequest request
 
         checkLeftover :: IO ()
@@ -122,12 +123,24 @@ mkRequestAction expected response actual = do
     actual @?= expected
     return response
 
-type RequestAction = Client.Request -> Client.Manager -> IO (Client.Request, Client.Response Client.BodyReader)
+type RequestAction = Client.Request -> IO (Client.Response BodyReader)
+
+type ClientRequestAction = Client.Request -> Manager -> IO (Client.Request, Client.Response BodyReader)
 
 withRequestAction :: (RequestAction -> RequestAction) -> IO a -> IO a
 withRequestAction action = bracket setup restore . const
   where
-    setup = atomicModifyIORef Client.requestAction $ \ old -> (action old, old)
+    lift :: ClientRequestAction -> ClientRequestAction
+    lift f request manager = do
+      (,) request <$> makeRequest request
+      where
+        makeRequest :: RequestAction
+        makeRequest = action (fmap snd . flip f manager)
+
+    setup :: IO ClientRequestAction
+    setup = atomicModifyIORef Client.requestAction $ \ old -> (lift old, old)
+
+    restore :: ClientRequestAction -> IO ()
     restore = writeIORef Client.requestAction
 
 protectRequestAction :: IO a -> IO a
@@ -143,7 +156,7 @@ toSimpleRequest r = do
     , requestBody = body
     }
 
-toSimpleResponse :: Client.Response Client.BodyReader -> IO Response
+toSimpleResponse :: Client.Response BodyReader -> IO Response
 toSimpleResponse r = do
     c <- Client.brConsume (Client.responseBody r)
     Client.responseClose r
@@ -153,7 +166,7 @@ toSimpleResponse r = do
     , responseBody = L.fromChunks c
     }
 
-fromSimpleResponse :: Client.Request -> Response -> IO (Client.Response Client.BodyReader)
+fromSimpleResponse :: Client.Request -> Response -> IO (Client.Response BodyReader)
 fromSimpleResponse request Response{..} = do
     body <- Client.constBodyReader (L.toChunks responseBody)
     return $ Client.Response {
