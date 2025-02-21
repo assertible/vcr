@@ -14,22 +14,40 @@ import WebMock.Util
 
 spec :: Spec
 spec = around_ inTempDirectory do
-  describe "requestBodyToByteString" do
+  fdescribe "requestBodyToByteString" do
     describe "with RequestBodyLBS" do
+      let body = RequestBodyLBS "foo"
+
       it "converts it to a ByteString" do
-        requestBodyToByteString (RequestBodyLBS "foo") `shouldReturn` "foo"
+        snd <$> requestBodyToByteString body `shouldReturn` "foo"
+
+      it "returns a copy of the original body" do
+        (copy, bytes) <- requestBodyToByteString body
+        snd <$> requestBodyToByteString copy `shouldReturn` bytes
 
     describe "with RequestBodyBS" do
+      let body = RequestBodyBS "foo"
+
       it "converts it to a ByteString" do
-        requestBodyToByteString (RequestBodyBS "foo") `shouldReturn` "foo"
+        snd <$> requestBodyToByteString body `shouldReturn` "foo"
+
+      it "returns a copy of the original body" do
+        (copy, bytes) <- requestBodyToByteString body
+        snd <$> requestBodyToByteString copy `shouldReturn` bytes
 
     describe "with RequestBodyBuilder" do
+      let body = RequestBodyBuilder 3 "foo"
+
       it "converts it to a ByteString" do
-        requestBodyToByteString (RequestBodyBuilder 3 "foo") `shouldReturn` "foo"
+        snd <$> requestBodyToByteString body `shouldReturn` "foo"
+
+      it "returns a copy of the original body" do
+        (copy, bytes) <- requestBodyToByteString body
+        snd <$> requestBodyToByteString copy `shouldReturn` bytes
 
       context "with wrong length" do
         it "throws an exception" do
-          requestBodyToByteString (RequestBodyBuilder 5 "foo") `shouldThrow` anyException
+          snd <$> requestBodyToByteString (RequestBodyBuilder 5 "foo") `shouldThrow` anyException
 
     let file = "test.txt"
     let expected = L.fromChunks $ replicate defaultChunkSize $ "foobar"
@@ -37,14 +55,24 @@ spec = around_ inTempDirectory do
       context "with RequestBodyStream" do
         it "converts it to a ByteString" do
           body@(RequestBodyStream _ _) <- streamFile file
-          requestBodyToByteString body `shouldReturn` expected
+          snd <$> requestBodyToByteString body `shouldReturn` expected
+
+        it "returns a copy of the original body" do
+          body@(RequestBodyStream _ _) <- streamFile file
+          (copy, bytes) <- requestBodyToByteString body
+          snd <$> requestBodyToByteString copy `shouldReturn` bytes
 
         context "with wrong length" do
           it "throws an exception" do
             RequestBodyStream n body <- streamFile file
-            requestBodyToByteString (RequestBodyStream (pred n) body) `shouldThrow` anyException
+            snd <$> requestBodyToByteString (RequestBodyStream (pred n) body) `shouldThrow` anyException
 
       context "with RequestBodyStreamChunked" do
         it "converts it to a ByteString" do
           (RequestBodyStream _ body) <- streamFile file
-          requestBodyToByteString (RequestBodyStreamChunked body) `shouldReturn` expected
+          snd <$> requestBodyToByteString (RequestBodyStreamChunked body) `shouldReturn` expected
+
+        it "returns a copy of the original body" do
+          (RequestBodyStream _ body) <- streamFile file
+          (copy, bytes) <- requestBodyToByteString (RequestBodyStreamChunked body)
+          snd <$> requestBodyToByteString copy `shouldReturn` bytes

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module WebMock (
@@ -69,7 +70,7 @@ unsafeMockRequest f = atomicWriteIORef Client.requestAction requestAction
   where
     requestAction :: RequestAction
     requestAction request _manager = do
-      (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
+      (,) request <$> (toSimpleRequest request >>= f . snd >>= fromSimpleResponse request)
 
 mockRequest :: HasCallStack => Request -> Response -> IO a -> IO a
 mockRequest expectedRequest response action = protectRequestAction $ do
@@ -125,11 +126,14 @@ withRequestAction :: (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction action = bracket setup restore . const
   where
     lift :: RequestAction -> RequestAction
-    lift makeClientRequest request manager = do
-      (,) request <$> do toSimpleRequest request >>= makeRequest >>= fromSimpleResponse request
-      where
+    lift makeClientRequest rr manager = do
+      (request, ss) <- toSimpleRequest rr
+      let
         makeRequest :: Request -> IO Response
         makeRequest = action $ snd <$> makeClientRequest request manager >>= toSimpleResponse
+
+      (,) request <$> do
+        makeRequest ss >>= fromSimpleResponse request
 
     setup :: IO RequestAction
     setup = atomicModifyIORef' Client.requestAction $ \ old -> (lift old, old)
@@ -146,15 +150,18 @@ protectRequestAction = bracket save restore . const
     restore :: RequestAction -> IO ()
     restore = atomicWriteIORef Client.requestAction
 
-toSimpleRequest :: Client.Request -> IO Request
-toSimpleRequest r = do
-  body <- requestBodyToByteString (Client.requestBody r)
-  return $ Request {
-    requestMethod = Client.method r
-  , requestUrl = uriToString id (Client.getUri r) ""
-  , requestHeaders = Client.requestHeaders r
-  , requestBody = body
-  }
+toSimpleRequest :: Client.Request -> IO (Client.Request, Request)
+toSimpleRequest request = do
+  (b, body) <- requestBodyToByteString request.requestBody
+  return (
+      request { Client.requestBody = b }
+    , Request {
+        requestMethod = request.method
+      , requestUrl = uriToString id (Client.getUri request) ""
+      , requestHeaders = request.requestHeaders
+      , requestBody = body
+      }
+    )
 
 toSimpleResponse :: Client.Response BodyReader -> IO Response
 toSimpleResponse r = do

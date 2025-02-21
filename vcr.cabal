@@ -73,6 +73,7 @@ test-suite spec
       hspec-discover:hspec-discover
   build-depends:
       HUnit
+    , aeson
     , base ==4.*
     , bytestring
     , case-insensitive
