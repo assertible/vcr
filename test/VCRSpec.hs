@@ -2,19 +2,20 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 module VCRSpec (spec) where
 
-import           Test.Hspec
-import           Test.Mockery.Directory
+import Imports
 
-import           Data.Functor
-import qualified Data.ByteString.Lazy as L
-import qualified Network.HTTP.Client as Client
-import           Network.HTTP.Client.TLS (getGlobalManager)
-import           Network.HTTP.Types
-import           System.Directory
+import Test.Hspec
+import Test.Mockery.Directory
 
-import           WebMock
+import Data.ByteString.Lazy qualified as L
+import Network.HTTP.Client qualified as Client
+import Network.HTTP.Client.TLS (getGlobalManager)
+import Network.HTTP.Types
+import System.Directory
 
-import           VCR
+import WebMock
+
+import VCR
 
 makeRequest :: String -> [Header] -> IO (Client.Response L.ByteString)
 makeRequest url headers = do

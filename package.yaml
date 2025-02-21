@@ -2,8 +2,11 @@ name: vcr
 
 ghc-options: -Wall
 
+defaults: sol/ghc2024@v0.1.0
+
 default-extensions:
   - BlockArguments
+  - NoImplicitPrelude
 
 dependencies:
   - base == 4.*

@@ -1,13 +1,14 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module WebMock.Util (requestBodyToByteString) where
 
-import           Data.ByteString (ByteString)
-import qualified Data.ByteString.Builder as Builder
-import qualified Data.ByteString.Lazy as L
-import           Data.Int
-import           Data.IORef
-import           Network.HTTP.Client.Internal
+import Imports
+
+import Data.ByteString (ByteString)
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as L
+import Data.Int
+import Data.IORef
+import Network.HTTP.Client.Internal
 
 requestBodyToByteString :: RequestBody -> IO L.ByteString
 requestBodyToByteString = \ case
