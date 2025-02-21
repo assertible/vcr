@@ -69,7 +69,7 @@ unsafeMockRequest f = atomicWriteIORef Client.requestAction requestAction
   where
     requestAction :: RequestAction
     requestAction request _manager = do
-      (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
+      toSimpleRequest request >>= f >>= fromSimpleResponse request
 
 mockRequest :: HasCallStack => Request -> Response -> IO a -> IO a
 mockRequest expectedRequest response action = protectRequestAction do
@@ -119,17 +119,17 @@ mkRequestAction expected response actual = do
   actual @?= expected
   return response
 
-type RequestAction = Client.Request -> Manager -> IO (Client.Request, Client.Response BodyReader)
+type RequestAction = Client.Request -> Manager -> IO (Client.Response BodyReader)
 
 withRequestAction :: (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction action = bracket setup restore . const
   where
     lift :: RequestAction -> RequestAction
     lift makeClientRequest request manager = do
-      (,) request <$> do toSimpleRequest request >>= makeRequest >>= fromSimpleResponse request
+      toSimpleRequest request >>= makeRequest >>= fromSimpleResponse request
       where
         makeRequest :: Request -> IO Response
-        makeRequest = action $ snd <$> makeClientRequest request manager >>= toSimpleResponse
+        makeRequest = action $ makeClientRequest request manager >>= toSimpleResponse
 
     setup :: IO RequestAction
     setup = atomicModifyIORef' Client.requestAction \ old -> (lift old, old)
