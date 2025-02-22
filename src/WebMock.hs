@@ -11,7 +11,6 @@ module WebMock (
 , mkRequestAction
 , module Network.HTTP.Types
 
-, RequestAction
 , withRequestAction
 , protectRequestAction
 
@@ -68,7 +67,7 @@ instance IsString Response where
 unsafeMockRequest :: (Request -> IO Response) -> IO ()
 unsafeMockRequest f = atomicWriteIORef Client.requestAction requestAction
   where
-    requestAction :: ClientRequestAction
+    requestAction :: RequestAction
     requestAction request _manager = do
       (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
 
@@ -82,9 +81,8 @@ mockRequest expectedRequest response action = protectRequestAction $ do
 disableRequests :: HasCallStack => IO a -> IO a
 disableRequests action = do
   let
-    requestAction :: RequestAction -> RequestAction
-    requestAction _makeRequest clientRequest = do
-      request <- toSimpleRequest clientRequest
+    requestAction :: IO Response -> Request -> IO Response
+    requestAction _makeRequest request = do
       unexpectedRequest request
   withRequestAction requestAction action
 
@@ -93,9 +91,8 @@ mockRequestChain interactions action = do
   ref <- newIORef interactions
 
   let
-    requestAction :: RequestAction -> RequestAction
-    requestAction _makeRequest clientRequest = do
-      request <- toSimpleRequest clientRequest
+    requestAction :: IO Response -> Request -> IO Response
+    requestAction _makeRequest request = do
       atomicModifyIORef' ref (drop 1 &&& listToMaybe) >>= \ case
         Just interaction -> interaction request
         Nothing -> unexpectedRequest request
@@ -122,33 +119,31 @@ mkRequestAction expected response actual = do
   actual @?= expected
   return response
 
-type RequestAction = Client.Request -> IO Response
+type RequestAction = Client.Request -> Manager -> IO (Client.Request, Client.Response BodyReader)
 
-type ClientRequestAction = Client.Request -> Manager -> IO (Client.Request, Client.Response BodyReader)
-
-withRequestAction :: (RequestAction -> RequestAction) -> IO a -> IO a
+withRequestAction :: (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction action = bracket setup restore . const
   where
-    lift :: ClientRequestAction -> ClientRequestAction
+    lift :: RequestAction -> RequestAction
     lift makeClientRequest request manager = do
-      (,) request <$> do makeRequest request >>= fromSimpleResponse request
+      (,) request <$> do toSimpleRequest request >>= makeRequest >>= fromSimpleResponse request
       where
-        makeRequest :: RequestAction
-        makeRequest = action $ fmap snd . flip makeClientRequest manager >=> toSimpleResponse
+        makeRequest :: Request -> IO Response
+        makeRequest = action $ snd <$> makeClientRequest request manager >>= toSimpleResponse
 
-    setup :: IO ClientRequestAction
+    setup :: IO RequestAction
     setup = atomicModifyIORef' Client.requestAction $ \ old -> (lift old, old)
 
-    restore :: ClientRequestAction -> IO ()
+    restore :: RequestAction -> IO ()
     restore = atomicWriteIORef Client.requestAction
 
 protectRequestAction :: IO a -> IO a
 protectRequestAction = bracket save restore . const
   where
-    save :: IO ClientRequestAction
+    save :: IO RequestAction
     save = atomicReadIORef Client.requestAction
 
-    restore :: ClientRequestAction -> IO ()
+    restore :: RequestAction -> IO ()
     restore = atomicWriteIORef Client.requestAction
 
 toSimpleRequest :: Client.Request -> IO Request
