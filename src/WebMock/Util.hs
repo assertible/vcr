@@ -10,13 +10,13 @@ import Data.Int
 import Data.IORef
 import Network.HTTP.Client.Internal
 
-requestBodyToByteString :: RequestBody -> IO L.ByteString
-requestBodyToByteString = \ case
-  RequestBodyLBS body -> return body
-  RequestBodyBS body -> return (L.fromStrict body)
-  RequestBodyBuilder n builder -> checkLength n (Builder.toLazyByteString builder)
-  RequestBodyStream n stream -> streamToByteString stream >>= checkLength n
-  RequestBodyStreamChunked stream -> streamToByteString stream
+requestBodyToByteString :: RequestBody -> IO (RequestBody, L.ByteString)
+requestBodyToByteString b = case b of
+  RequestBodyLBS body -> return (b, body)
+  RequestBodyBS body -> return (b, L.fromStrict body)
+  RequestBodyBuilder n builder -> (,) b <$> checkLength n (Builder.toLazyByteString builder)
+  RequestBodyStream n stream -> (,) b <$> (streamToByteString stream >>= checkLength n)
+  RequestBodyStreamChunked stream -> (,) b <$> streamToByteString stream
   RequestBodyIO body -> body >>= requestBodyToByteString
 
 streamToByteString :: GivesPopper () -> IO L.ByteString
