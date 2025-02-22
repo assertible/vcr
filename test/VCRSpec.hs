@@ -40,23 +40,20 @@ spec = around_ inTempDirectory do
         request :: Request
         request = "http://httpbin.org/status/200" {requestHeaders = headers}
 
-        response :: Response
-        response = "" {responseStatus = status200}
-
       context "when mode is AnyOrder" do
         it "redacts the Authorization header" do
-          mockRequest request response do
+          mockRequest request "" do
             withTape tape {mode = AnyOrder} do
               void $ makeRequest "http://httpbin.org/status/200" headers
-          [Interaction recordedRequest _ ] <- loadTape tape.file
+          [(recordedRequest, _)] <- loadTape tape.file
           requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
       context "when mode is Sequential" do
         it "redacts the Authorization header" do
-          mockRequest request response do
+          mockRequest request "" do
             withTape tape {mode = Sequential} do
               void $ makeRequest "http://httpbin.org/status/200" headers
-          [Interaction recordedRequest _ ] <- loadTape tape.file
+          [(recordedRequest, _)] <- loadTape tape.file
           requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
     context "on exception" do
