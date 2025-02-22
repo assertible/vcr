@@ -29,9 +29,8 @@ import Data.Yaml.Pretty qualified as Yaml
 import GHC.Stack (HasCallStack)
 import System.Directory
 import System.FilePath
-import Network.HTTP.Client.Internal qualified as Client
 
-import WebMock hiding (toSimpleRequest)
+import WebMock hiding (withRequestAction)
 import WebMock qualified
 
 data Tape = Tape {
@@ -90,10 +89,10 @@ captureInteractions redact consumeCaptured action = do
   ref <- newIORef []
 
   let
-    capture :: RequestAction -> RequestAction
+    capture :: IO Response -> Request -> IO Response
     capture makeRequest request = do
-      response <- makeRequest request
-      captureInteraction =<< Interaction <$> toSimpleRequest redact request <*> pure response
+      response <- makeRequest
+      captureInteraction $ Interaction request response
       return response
 
     captureInteraction :: Interaction -> IO ()
@@ -102,7 +101,7 @@ captureInteractions redact consumeCaptured action = do
     getCaptured :: IO [Interaction]
     getCaptured = reverse <$> atomicReadIORef ref
 
-  withRequestAction capture action `finally` (consumeCaptured =<< getCaptured)
+  withRequestAction redact capture action `finally` (consumeCaptured =<< getCaptured)
 
 playTape :: HasCallStack => Tape -> IO a -> IO a
 playTape (Tape file mode redact) action = do
@@ -115,11 +114,10 @@ mockInteractions :: (Request -> Request) -> [Interaction] -> IO a -> IO a
 mockInteractions redact = go
   where
     go :: [Interaction] -> IO a -> IO a
-    go (map fromInteraction -> interactions) = withRequestAction $ \ makeRequest clientRequest -> do
-      request <- toSimpleRequest redact clientRequest
+    go (map fromInteraction -> interactions) = withRequestAction redact $ \ makeRequest request -> do
       case lookup request interactions of
         Just response -> return response
-        Nothing -> makeRequest clientRequest
+        Nothing -> makeRequest
 
     fromInteraction :: Interaction -> (Request, Response)
     fromInteraction (Interaction request response) = (request, response)
@@ -130,8 +128,9 @@ playInOrder redact = mockRequestChain . map toRequestAction
     toRequestAction :: Interaction -> Request -> IO Response
     toRequestAction (Interaction request response) = mkRequestAction request response . redact
 
-toSimpleRequest :: (Request -> Request) -> Client.Request -> IO Request
-toSimpleRequest redact = fmap redact . WebMock.toSimpleRequest
+withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Response) -> IO a -> IO a
+withRequestAction redact requestAction = WebMock.withRequestAction
+  \ makeRequest request -> requestAction makeRequest (redact request)
 
 saveTape :: FilePath -> [Interaction] -> IO ()
 saveTape file interactions = do
