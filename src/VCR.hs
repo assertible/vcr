@@ -65,7 +65,7 @@ modeAnyOrder redact file action = do
     True -> loadTape file
 
   let
-    save newInteractions = unless (null newInteractions) $ do
+    save newInteractions = unless (null newInteractions) do
       saveTape file (interactions ++ newInteractions)
 
   captureInteractions redact save $ mockInteractions redact interactions action
@@ -96,7 +96,7 @@ captureInteractions redact consumeCaptured action = do
       return response
 
     captureInteraction :: Interaction -> IO ()
-    captureInteraction x = atomicModifyIORef' ref $ \ xs -> (x : xs, ())
+    captureInteraction x = atomicModifyIORef' ref \ xs -> (x : xs, ())
 
     getCaptured :: IO [Interaction]
     getCaptured = reverse <$> atomicReadIORef ref
@@ -114,7 +114,7 @@ mockInteractions :: (Request -> Request) -> [Interaction] -> IO a -> IO a
 mockInteractions redact = go
   where
     go :: [Interaction] -> IO a -> IO a
-    go (map fromInteraction -> interactions) = withRequestAction redact $ \ makeRequest request -> do
+    go (map fromInteraction -> interactions) = withRequestAction redact \ makeRequest request -> do
       case lookup request interactions of
         Just response -> return response
         Nothing -> makeRequest
@@ -206,12 +206,12 @@ instance ToJSON Interaction where
             ]
 
 instance FromJSON Interaction where
-  parseJSON = withObject "Interaction" $ \ o -> Interaction
+  parseJSON = withObject "Interaction" \ o -> Interaction
     <$> (o .: "request" >>= requestFromJSON)
     <*> (o .: "response" >>= responseFromJSON)
     where
       requestFromJSON :: Value -> Parser Request
-      requestFromJSON = withObject "Request" $ \ o ->
+      requestFromJSON = withObject "Request" \ o ->
         Request
         <$> (B.pack <$> o .: "method")
         <*> o .: "url"
@@ -219,7 +219,7 @@ instance FromJSON Interaction where
         <*> (L.pack <$> o .: "body")
 
       responseFromJSON :: Value -> Parser Response
-      responseFromJSON = withObject "Response" $ \ o -> Response
+      responseFromJSON = withObject "Response" \ o -> Response
         <$> (o .: "status" >>= statusFromJSON)
         <*> (o .: "headers" >>= headersFromJSON)
         <*> (L.pack <$> o .: "body")
