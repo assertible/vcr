@@ -9,7 +9,6 @@ module VCR (
 , recordTape
 , playTape
 #ifdef TEST
-, Interaction(..)
 , loadTape
 #endif
 ) where
@@ -83,7 +82,7 @@ recordTape (Tape file _ redact) = record redact file
 record :: (Request -> Request) -> FilePath -> IO a -> IO a
 record redact = captureInteractions redact . saveTape
 
-captureInteractions :: (Request -> Request) -> ([Interaction] -> IO ()) -> IO a -> IO a
+captureInteractions :: (Request -> Request) -> ([(Request, Response)] -> IO ()) -> IO a -> IO a
 captureInteractions redact consumeCaptured action = do
 
   ref <- newIORef []
@@ -92,13 +91,13 @@ captureInteractions redact consumeCaptured action = do
     capture :: IO Response -> Request -> IO Response
     capture makeRequest request = do
       response <- makeRequest
-      captureInteraction $ Interaction request response
+      captureInteraction (request, response)
       return response
 
-    captureInteraction :: Interaction -> IO ()
+    captureInteraction :: (Request, Response) -> IO ()
     captureInteraction x = atomicModifyIORef' ref \ xs -> (x : xs, ())
 
-    getCaptured :: IO [Interaction]
+    getCaptured :: IO [(Request, Response)]
     getCaptured = reverse <$> atomicReadIORef ref
 
   withRequestAction redact capture action `finally` (consumeCaptured =<< getCaptured)
@@ -110,37 +109,37 @@ playTape (Tape file mode redact) action = do
     AnyOrder -> mockInteractions redact interactions action
     Sequential -> playInOrder redact interactions action
 
-mockInteractions :: (Request -> Request) -> [Interaction] -> IO a -> IO a
+mockInteractions :: (Request -> Request) -> [(Request, Response)] -> IO a -> IO a
 mockInteractions redact = go
   where
-    go :: [Interaction] -> IO a -> IO a
-    go (map fromInteraction -> interactions) = withRequestAction redact \ makeRequest request -> do
+    go :: [(Request, Response)] -> IO a -> IO a
+    go interactions = withRequestAction redact \ makeRequest request -> do
       case lookup request interactions of
         Just response -> return response
         Nothing -> makeRequest
 
-    fromInteraction :: Interaction -> (Request, Response)
-    fromInteraction (Interaction request response) = (request, response)
-
-playInOrder :: HasCallStack => (Request -> Request) -> [Interaction] -> IO a -> IO a
+playInOrder :: HasCallStack => (Request -> Request) -> [(Request, Response)] -> IO a -> IO a
 playInOrder redact = mockRequestChain . map toRequestAction
   where
-    toRequestAction :: Interaction -> Request -> IO Response
-    toRequestAction (Interaction request response) = mkRequestAction request response . redact
+    toRequestAction :: (Request, Response) -> Request -> IO Response
+    toRequestAction (request, response) = mkRequestAction request response . redact
 
 withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction redact requestAction = WebMock.withRequestAction
   \ makeRequest request -> requestAction makeRequest (redact request)
 
-saveTape :: FilePath -> [Interaction] -> IO ()
+saveTape :: FilePath -> [(Request, Response)] -> IO ()
 saveTape file interactions = do
   ensureDirectory file
-  B.writeFile file $ Yaml.encodePretty conf interactions
+  B.writeFile file $ Yaml.encodePretty conf (toInteractions interactions)
   where
     conf = Yaml.setConfCompare (comparing f) Yaml.defConfig
 
     f :: Text -> Int
     f name = fromMaybe maxBound (lookup name fieldOrder)
+
+    toInteractions :: [(Request, Response)] -> [Interaction]
+    toInteractions = map \ (request, response) -> (Interaction request response)
 
 fieldOrder :: [(Text, Int)]
 fieldOrder = flip zip [1..] [
@@ -164,8 +163,11 @@ fieldOrder = flip zip [1..] [
 ensureDirectory :: FilePath -> IO ()
 ensureDirectory = createDirectoryIfMissing True . takeDirectory
 
-loadTape :: FilePath -> IO [Interaction]
-loadTape file = Yaml.decodeFileThrow file
+loadTape :: FilePath -> IO [(Request, Response)]
+loadTape file = B.readFile file >>= fmap fromInteractions . Yaml.decodeThrow
+  where
+    fromInteractions :: [Interaction] -> [(Request, Response)]
+    fromInteractions = map \ (Interaction request response) -> (request, response)
 
 data Interaction = Interaction Request Response
 
