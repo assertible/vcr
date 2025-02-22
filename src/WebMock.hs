@@ -72,8 +72,8 @@ unsafeMockRequest f = atomicWriteIORef Client.requestAction requestAction
       (,) request <$> (toSimpleRequest request >>= f >>= fromSimpleResponse request)
 
 mockRequest :: HasCallStack => Request -> Response -> IO a -> IO a
-mockRequest expectedRequest response action = protectRequestAction $ do
-  unsafeMockRequest $ \ request -> do
+mockRequest expectedRequest response action = protectRequestAction do
+  unsafeMockRequest \ request -> do
     request @?= expectedRequest
     return response
   action
@@ -100,7 +100,7 @@ mockRequestChain interactions action = do
     checkLeftover :: IO ()
     checkLeftover = do
       leftover <- length <$> atomicReadIORef ref
-      when (leftover /= 0) $ do
+      when (leftover /= 0) do
         let
           total = length interactions
           actual = total - leftover
@@ -132,7 +132,7 @@ withRequestAction action = bracket setup restore . const
         makeRequest = action $ snd <$> makeClientRequest request manager >>= toSimpleResponse
 
     setup :: IO RequestAction
-    setup = atomicModifyIORef' Client.requestAction $ \ old -> (lift old, old)
+    setup = atomicModifyIORef' Client.requestAction \ old -> (lift old, old)
 
     restore :: RequestAction -> IO ()
     restore = atomicWriteIORef Client.requestAction

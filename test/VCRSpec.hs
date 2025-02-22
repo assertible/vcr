@@ -30,9 +30,9 @@ tape :: Tape
 tape = "tape.yaml"
 
 spec :: Spec
-spec = around_ inTempDirectory $ do
-  describe "withTape" $ do
-    context "with an Authorization header" $ do
+spec = around_ inTempDirectory do
+  describe "withTape" do
+    context "with an Authorization header" do
       let
         headers :: [Header]
         headers = [(hAuthorization, "Bearer sk-RfAZfajzapKps4anC6ej8rhSnMxf5sLd")]
@@ -43,25 +43,25 @@ spec = around_ inTempDirectory $ do
         response :: Response
         response = "" {responseStatus = status200}
 
-      context "when mode is AnyOrder" $ do
-        it "redacts the Authorization header" $ do
-          mockRequest request response $ do
-            withTape tape {mode = AnyOrder} $ do
+      context "when mode is AnyOrder" do
+        it "redacts the Authorization header" do
+          mockRequest request response do
+            withTape tape {mode = AnyOrder} do
               void $ makeRequest "http://httpbin.org/status/200" headers
           [Interaction recordedRequest _ ] <- loadTape tape.file
           requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
-      context "when mode is Sequential" $ do
-        it "redacts the Authorization header" $ do
-          mockRequest request response $ do
-            withTape tape {mode = Sequential} $ do
+      context "when mode is Sequential" do
+        it "redacts the Authorization header" do
+          mockRequest request response do
+            withTape tape {mode = Sequential} do
               void $ makeRequest "http://httpbin.org/status/200" headers
           [Interaction recordedRequest _ ] <- loadTape tape.file
           requestHeaders recordedRequest `shouldBe` [(hAuthorization, "********")]
 
-    context "on exception" $ do
-      it "writes tape" $ do
-        mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} $ do
+    context "on exception" do
+      it "writes tape" do
+        mockRequest "http://httpbin.org/status/500" "" {responseStatus = status500} do
           withTape tape (makeRequest "http://httpbin.org/status/500" [])
             `shouldThrow` httpException
         doesFileExist tape.file `shouldReturn` True
