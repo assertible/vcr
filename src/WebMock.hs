@@ -108,7 +108,7 @@ mockRequestChain interactions action = do
 
   withRequestAction requestAction action <* checkLeftover
 
-unexpectedRequest :: Request -> IO a
+unexpectedRequest :: HasCallStack => Request -> IO a
 unexpectedRequest request = assertFailure $ "Unexpected HTTP request: " ++ show request
 
 mkRequestActions :: HasCallStack => [(Request, Response)] -> [Request -> IO Response]
