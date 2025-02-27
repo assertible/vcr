@@ -25,6 +25,7 @@ dependencies:
   - yaml
   - HUnit
   - containers
+  - async
 
 library:
   source-dirs: src

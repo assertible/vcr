@@ -39,7 +39,7 @@ data Request = Request {
   requestMethod  :: Method
 , requestUrl     :: String
 , requestHeaders :: RequestHeaders
-, requestBody    :: L.ByteString
+, requestBody    :: LazyByteString
 } deriving (Eq, Ord)
 
 instance IsString Request where
@@ -58,7 +58,7 @@ instance Show Request where
 data Response = Response {
   responseStatus  :: Status
 , responseHeaders :: ResponseHeaders
-, responseBody    :: L.ByteString
+, responseBody    :: LazyByteString
 } deriving (Eq, Show)
 
 instance IsString Response where

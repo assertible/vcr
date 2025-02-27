@@ -26,6 +26,7 @@ library
   ghc-options: -Wall
   build-depends:
       HUnit
+    , async
     , base ==4.*
     , bytestring
     , case-insensitive
@@ -76,6 +77,7 @@ test-suite spec
       hspec-discover:hspec-discover
   build-depends:
       HUnit
+    , async
     , base ==4.*
     , bytestring
     , case-insensitive
