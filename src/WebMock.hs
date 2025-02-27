@@ -40,7 +40,7 @@ data Request = Request {
 , requestUrl     :: String
 , requestHeaders :: RequestHeaders
 , requestBody    :: L.ByteString
-} deriving Eq
+} deriving (Eq, Ord)
 
 instance IsString Request where
   fromString url = Request "GET" url [] ""
@@ -175,7 +175,7 @@ fromSimpleResponse request Response{..} = do
   , Client.responseHeaders = responseHeaders
   , Client.responseBody = body
   , Client.responseCookieJar = mempty
-  , Client.responseClose' = Client.ResponseClose $ return ()
+  , Client.responseClose' = Client.ResponseClose pass
   , Client.responseOriginalRequest = request { Client.requestBody = mempty }
   , Client.responseEarlyHints = mempty
   }

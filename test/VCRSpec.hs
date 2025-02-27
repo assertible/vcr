@@ -31,9 +31,6 @@ shouldReturnStatus :: HasCallStack => String -> Status -> IO ()
 shouldReturnStatus url expected = do
   Client.responseStatus <$> makeRequest url [] `shouldReturn` expected
 
-tape :: Tape
-tape = "tape.yaml"
-
 authRequest :: Request
 authRequest = "http://httpbin.org/status/200" {
   requestHeaders = [(hAuthorization, "Bearer sk-RfAZfajzapKps4anC6ej8rhSnMxf5sLd")]
@@ -51,6 +48,29 @@ spec :: Spec
 spec = around_ inTempDirectory do
   describe "withTape" do
     context "when mode is AnyOrder" do
+      let tape = "tape.yaml"
+
+      it "records the first request to a resource, replays subsequent requests" do
+        mockRequestChain [\ _ -> return ""] do
+          withTape tape do
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+        length <$> loadTape tape.file `shouldReturn` 1
+
+      it "records the requests in the order they were made" do
+        let respondWith responseStatus _ = return $ "" { responseStatus }
+        mockRequestChain [respondWith status200, respondWith status202, respondWith status201] do
+          withTape tape do
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/202" `shouldReturnStatus` status202
+            "http://httpbin.org/status/201" `shouldReturnStatus` status201
+        loadTape tape.file `shouldReturn` [
+            ("http://httpbin.org/status/200", "" { responseStatus = status200 })
+          , ("http://httpbin.org/status/202", "" { responseStatus = status202 })
+          , ("http://httpbin.org/status/201", "" { responseStatus = status201 })
+          ]
+
       context "with an existing tape" do
         it "replays existing requests from the tape" do
           mockRequest "http://httpbin.org/status/200" "" do
@@ -77,23 +97,33 @@ spec = around_ inTempDirectory do
               `shouldThrow` httpException
           length <$> loadTape tape.file `shouldReturn` 1
 
-    context "with an Authorization header" do
-      context "when mode is AnyOrder" do
+      context "with an Authorization header" do
         it "redacts the Authorization header" do
           mockRequest authRequest "" do
-            withTape tape do
-              makeAuthRequest
+            withTape tape makeAuthRequest
           loadTape tape.file `shouldReturn` [(redactedAuthRequest, "")]
 
-      context "when mode is Sequential" do
+    context "when mode is Sequential" do
+      let tape = "tape.yaml" { mode = Sequential }
+
+      it "records all requests to a resource" do
+        mockRequest "http://httpbin.org/status/200" "" do
+          withTape tape do
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+        length <$> loadTape tape.file `shouldReturn` 3
+
+      context "with an Authorization header" do
         it "redacts the Authorization header" do
           mockRequest authRequest "" do
-            withTape tape { mode = Sequential } do
-              makeAuthRequest
+            withTape tape makeAuthRequest
           loadTape tape.file `shouldReturn` [(redactedAuthRequest, "")]
 
   describe "playTape" do
     context "when mode is AnyOrder" do
+      let tape = "tape.yaml"
+
       it "replays existing requests from the tape" do
         mockRequest "http://httpbin.org/status/200" "" do
           recordTape tape do
