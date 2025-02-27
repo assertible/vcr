@@ -24,6 +24,7 @@ dependencies:
   - http-client
   - yaml
   - HUnit
+  - containers
 
 library:
   source-dirs: src

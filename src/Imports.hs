@@ -13,3 +13,6 @@ import Data.IORef as Imports (IORef, newIORef, atomicWriteIORef, atomicModifyIOR
 
 atomicReadIORef :: IORef a -> IO a
 atomicReadIORef ref = atomicModifyIORef' ref (id &&& id)
+
+pass :: Applicative m => m ()
+pass = pure ()

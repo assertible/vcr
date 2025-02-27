@@ -21,12 +21,17 @@ module VCR (
 import Imports
 
 import Control.Exception
+import Control.Concurrent.MVar
+import Data.List
+import Data.Either
 import Data.Text (Text)
 import Data.Ord
 import Data.ByteString.Char8 qualified as B
 import Data.ByteString.Lazy.Char8 qualified as L
 import Data.CaseInsensitive qualified as CI
 import Data.String
+import Data.Map.Strict (Map)
+import Data.Map qualified as Map
 import Data.Yaml
 import Data.Yaml qualified as Yaml
 import Data.Yaml.Pretty qualified as Yaml
@@ -58,7 +63,20 @@ data OpenTape mode = OpenTape {
 
 type family InteractionsFor (mode :: Mode)
 
-type instance InteractionsFor AnyOrder = [(Request, Response)]
+type instance InteractionsFor AnyOrder = MVar Interactions
+
+data Interactions = Interactions {
+  modified :: Modified
+, interactions :: Map Request (WithIndex Response)
+, nextIndex :: Index
+}
+
+data Modified = NotModified | Modified
+
+data WithIndex a = WithIndex Index a
+
+newtype Index = Index Int
+  deriving newtype (Eq, Show, Ord, Enum, Num)
 
 type instance InteractionsFor Sequential = [(Request, Response)]
 
@@ -71,17 +89,33 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
       | otherwise = header
 
 withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape tape action = case tape.mode of
-  AnyOrder -> openTape'AnyOrder tape >>= flip modeAnyOrder action
-  Sequential -> openTape'Sequential tape >>= flip modeSequential action
+withTape tape = case tape.mode of
+  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder . flip modeAnyOrder
+  Sequential -> bracket (openTape'Sequential tape) (\ _ -> pass) . flip modeSequential
 
 modeAnyOrder :: OpenTape AnyOrder -> IO a -> IO a
-modeAnyOrder tape action = do
-  captureInteractions tape.redact save $ mockInteractions tape.redact tape.interactions action
-  where
-    save :: [(Request, Response)] -> IO ()
-    save newInteractions = unless (null newInteractions) do
-      closeTape'AnyOrder tape { interactions = tape.interactions ++ newInteractions }
+modeAnyOrder tape = withRequestAction tape.redact \ makeRequest request -> do
+  modifyMVar tape.interactions \ interactions -> do
+    case Map.lookup request interactions.interactions of
+      Just (WithIndex _ response) -> do
+        return (interactions, response)
+      Nothing -> do
+        response <- makeRequest
+        return (addInteraction request response interactions, response)
+
+addInteraction :: Request -> Response -> Interactions -> Interactions
+addInteraction request response (Interactions _ interactions nextIndex) =
+  case Map.lookup request interactions of
+    Nothing -> Interactions {
+        modified = Modified
+      , interactions = Map.insert request (WithIndex nextIndex response) interactions
+      , nextIndex = succ nextIndex
+      }
+    Just (WithIndex n _) -> Interactions {
+        modified = Modified
+      , interactions = Map.insert request (WithIndex n response) interactions
+      , nextIndex
+      }
 
 modeSequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
 modeSequential tape action = case (not . null) tape.interactions of
@@ -143,15 +177,40 @@ withRequestAction redact requestAction = WebMock.withRequestAction
 
 openTape'AnyOrder :: Tape -> IO (OpenTape AnyOrder)
 openTape'AnyOrder Tape{..} = do
-  interactions <- tryLoadTape file
+  interactions <- tryLoadTape file >>= newMVar . toInteractions
   return OpenTape {
     file
   , interactions
   , redact
   }
+  where
+    toInteractions :: [(Request, Response)] -> Interactions
+    toInteractions (addIndices >>> Map.fromList -> interactions) = Interactions {
+      modified = NotModified
+    , interactions
+    , nextIndex = Index (Map.size interactions)
+    }
+
+    addIndices :: [(a, b)] -> [(a, WithIndex b)]
+    addIndices = zipWith (\ n (request, response) -> (request, WithIndex n response)) [0 ..]
 
 closeTape'AnyOrder :: OpenTape AnyOrder -> IO ()
-closeTape'AnyOrder tape = saveTape tape.file tape.interactions
+closeTape'AnyOrder tape = do
+  withMVar tape.interactions \ (Interactions modified interactions _) -> case modified of
+    NotModified -> pass
+    Modified -> saveTape tape.file $ toSortedList interactions
+  where
+    toSortedList :: Map a (WithIndex b) -> [(a, b)]
+    toSortedList = map (fmap value) . sortOnIndex . Map.toList
+
+    sortOnIndex :: [(a, WithIndex b)] -> [(a, WithIndex b)]
+    sortOnIndex = sortOn (index . snd)
+
+    index :: WithIndex a -> Index
+    index (WithIndex n _) = n
+
+    value :: WithIndex a -> a
+    value (WithIndex _ a) = a
 
 openTape'Sequential :: Tape -> IO (OpenTape Sequential)
 openTape'Sequential Tape{..} = do
@@ -198,7 +257,7 @@ ensureDirectory :: FilePath -> IO ()
 ensureDirectory = createDirectoryIfMissing True . takeDirectory
 
 tryLoadTape :: FilePath -> IO [(Request, Response)]
-tryLoadTape file = either (const []) id <$> tryJust (guard . isDoesNotExistError) (loadTape file)
+tryLoadTape file = fromRight [] <$> tryJust (guard . isDoesNotExistError) (loadTape file)
 
 loadTape :: FilePath -> IO [(Request, Response)]
 loadTape file = B.readFile file >>= fmap fromInteractions . Yaml.decodeThrow
