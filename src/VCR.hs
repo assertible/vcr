@@ -22,6 +22,7 @@ import Imports
 
 import Control.Exception
 import Control.Concurrent.MVar
+import Control.Concurrent.Async
 import Data.List
 import Data.Either
 import Data.Text (Text)
@@ -67,7 +68,7 @@ type instance InteractionsFor AnyOrder = MVar Interactions
 
 data Interactions = Interactions {
   modified :: Modified
-, interactions :: Map Request (WithIndex Response)
+, interactions :: Map Request (WithIndex (Async Response))
 , nextIndex :: Index
 }
 
@@ -94,16 +95,16 @@ withTape tape = case tape.mode of
   Sequential -> bracket (openTape'Sequential tape) (\ _ -> pass) . flip modeSequential
 
 modeAnyOrder :: OpenTape AnyOrder -> IO a -> IO a
-modeAnyOrder tape = withRequestAction tape.redact \ makeRequest request -> do
+modeAnyOrder tape = withRequestAction tape.redact \ makeRequest request -> join do
   modifyMVar tape.interactions \ interactions -> do
     case Map.lookup request interactions.interactions of
       Just (WithIndex _ response) -> do
-        return (interactions, response)
+        return (interactions, wait response)
       Nothing -> do
-        response <- makeRequest
-        return (addInteraction request response interactions, response)
+        response <- async makeRequest
+        return (addInteraction request response interactions, wait response)
 
-addInteraction :: Request -> Response -> Interactions -> Interactions
+addInteraction :: Request -> Async Response -> Interactions -> Interactions
 addInteraction request response (Interactions _ interactions nextIndex) =
   case Map.lookup request interactions of
     Nothing -> Interactions {
@@ -177,19 +178,24 @@ withRequestAction redact requestAction = WebMock.withRequestAction
 
 openTape'AnyOrder :: Tape -> IO (OpenTape AnyOrder)
 openTape'AnyOrder Tape{..} = do
-  interactions <- tryLoadTape file >>= newMVar . toInteractions
+  interactions <- tryLoadTape file >>= toInteractions >>= newMVar
   return OpenTape {
     file
   , interactions
   , redact
   }
   where
-    toInteractions :: [(Request, Response)] -> Interactions
-    toInteractions (addIndices >>> Map.fromList -> interactions) = Interactions {
-      modified = NotModified
-    , interactions
-    , nextIndex = Index (Map.size interactions)
-    }
+    toInteractions :: [(Request, Response)] -> IO Interactions
+    toInteractions recordedInteractions = do
+      interactions <- Map.fromList . addIndices <$> traverse toAsyncResponse recordedInteractions
+      return Interactions {
+        modified = NotModified
+      , interactions
+      , nextIndex = Index (Map.size interactions)
+      }
+
+    toAsyncResponse :: (Request, Response) -> IO (Request, Async Response)
+    toAsyncResponse = traverse $ return >>> async
 
     addIndices :: [(a, b)] -> [(a, WithIndex b)]
     addIndices = zipWith (\ n (request, response) -> (request, WithIndex n response)) [0 ..]
@@ -198,8 +204,14 @@ closeTape'AnyOrder :: OpenTape AnyOrder -> IO ()
 closeTape'AnyOrder tape = do
   withMVar tape.interactions \ (Interactions modified interactions _) -> case modified of
     NotModified -> pass
-    Modified -> saveTape tape.file $ toSortedList interactions
+    Modified -> sequenceInteractions (toSortedList interactions) >>= saveTape tape.file
   where
+    sequenceInteractions :: [(Request, Async Response)] -> IO [(Request, Response)]
+    sequenceInteractions = fmap rights . traverse waitCatchAll
+
+    waitCatchAll :: (Request, Async Response) -> IO (Either SomeException (Request, Response))
+    waitCatchAll = fmap sequence . traverse waitCatch
+
     toSortedList :: Map a (WithIndex b) -> [(a, b)]
     toSortedList = map (fmap value) . sortOnIndex . Map.toList
 

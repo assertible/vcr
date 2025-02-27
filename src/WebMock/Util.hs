@@ -3,14 +3,13 @@ module WebMock.Util (requestBodyToByteString) where
 
 import Imports
 
-import Data.ByteString (ByteString)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as L
 import Data.Int
 import Data.IORef
 import Network.HTTP.Client.Internal
 
-requestBodyToByteString :: RequestBody -> IO L.ByteString
+requestBodyToByteString :: RequestBody -> IO LazyByteString
 requestBodyToByteString = \ case
   RequestBodyLBS body -> return body
   RequestBodyBS body -> return (L.fromStrict body)
@@ -19,18 +18,18 @@ requestBodyToByteString = \ case
   RequestBodyStreamChunked stream -> streamToByteString stream
   RequestBodyIO body -> body >>= requestBodyToByteString
 
-streamToByteString :: GivesPopper () -> IO L.ByteString
+streamToByteString :: GivesPopper () -> IO LazyByteString
 streamToByteString givesPopper = do
   ref <- newIORef undefined
   givesPopper (go [] ref)
   readIORef ref
   where
-    go :: [ByteString] -> IORef L.ByteString -> Popper -> IO ()
+    go :: [ByteString] -> IORef LazyByteString -> Popper -> IO ()
     go xs ref get = get >>= \ case
       "" -> writeIORef ref (L.fromChunks $ reverse xs)
       x -> go (x : xs) ref get
 
-checkLength :: Int64 -> L.ByteString -> IO L.ByteString
+checkLength :: Int64 -> LazyByteString -> IO LazyByteString
 checkLength n xs
   | n == len = return xs
   | otherwise = throwHttp $ WrongRequestBodyStreamSize (fromIntegral len) (fromIntegral n)

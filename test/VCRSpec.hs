@@ -6,8 +6,10 @@ import Imports
 
 import Test.Hspec
 import Test.Mockery.Directory
+import System.Timeout
 
-import Data.ByteString.Lazy qualified as L
+import Control.Concurrent
+import Control.Concurrent.Async
 import Network.HTTP.Client qualified as Client
 import Network.HTTP.Client.TLS (getGlobalManager)
 import Network.HTTP.Types
@@ -16,7 +18,7 @@ import WebMock
 
 import VCR
 
-makeRequest :: String -> [Header] -> IO (Client.Response L.ByteString)
+makeRequest :: String -> [Header] -> IO (Client.Response LazyByteString)
 makeRequest url headers = do
   manager <- getGlobalManager
   request <- Client.parseUrlThrow url
@@ -26,10 +28,15 @@ httpException :: Client.HttpException -> Bool
 httpException _ = True
 
 infix 1 `shouldReturnStatus`
+infix 1 `shouldReturnBody`
 
 shouldReturnStatus :: HasCallStack => String -> Status -> IO ()
 shouldReturnStatus url expected = do
   Client.responseStatus <$> makeRequest url [] `shouldReturn` expected
+
+shouldReturnBody :: HasCallStack => String -> LazyByteString -> IO ()
+shouldReturnBody url expected = do
+  Client.responseBody <$> makeRequest url [] `shouldReturn` expected
 
 authRequest :: Request
 authRequest = "http://httpbin.org/status/200" {
@@ -89,6 +96,15 @@ spec = around_ inTempDirectory do
               withTape tape do
                 "http://httpbin.org/status/201" `shouldReturnStatus` status201
             length <$> loadTape tape.file `shouldReturn` 2
+
+      context "with concurrent requests" do
+        it "records the requests concurrently, without blocking" do
+          maybe (expectationFailure "<<timeout>>") return <=< timeout 100_000 . protectRequestAction $ do
+            unsafeMockRequest (\ _ -> threadDelay 10_000 >> return "")
+            withTape tape do
+              forConcurrently_ [200 .. 299 :: Int] $ \ status -> do
+                "http://httpbin.org/status/" <> show status `shouldReturnBody` ""
+          length <$> loadTape tape.file `shouldReturn` 100
 
       context "on exception" do
         it "writes the tape to disk" do
