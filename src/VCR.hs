@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -13,9 +12,6 @@ module VCR (
 , withTape
 , recordTape
 , playTape
-#ifdef TEST
-, loadTape
-#endif
 ) where
 
 import Imports
@@ -25,25 +21,16 @@ import Control.Concurrent.MVar
 import Control.Concurrent.Async
 import Data.List
 import Data.Either
-import Data.Text (Text)
-import Data.Ord
-import Data.ByteString.Char8 qualified as B
-import Data.ByteString.Lazy.Char8 qualified as L
-import Data.CaseInsensitive qualified as CI
 import Data.String
 import Data.Map.Strict (Map)
 import Data.Map qualified as Map
-import Data.Yaml
-import Data.Yaml qualified as Yaml
-import Data.Yaml.Pretty qualified as Yaml
 import GHC.Stack (HasCallStack)
-import System.IO.Error
-import System.Directory
-import System.FilePath
 import Test.HUnit
 
 import WebMock hiding (withRequestAction)
 import WebMock qualified
+
+import VCR.Serialize qualified as Serialize
 
 data Tape = Tape {
   file :: FilePath
@@ -97,11 +84,7 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
       | otherwise = header
 
 withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape tape action = case tape.mode of
-  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
-    withTape'AnyOrder True t action
-  Sequential -> bracket (openTape'Sequential tape) closeTape'Sequential \ t -> do
-    withTape'Sequential t action <* checkLeftover t
+withTape = runTape ReadWriteMode
 
 checkLeftover :: HasCallStack => OpenTape Sequential -> IO ()
 checkLeftover tape = withMVar tape.interactions \ interactions -> case interactions.replay of
@@ -111,15 +94,40 @@ checkLeftover tape = withMVar tape.interactions \ interactions -> case interacti
       total = actual + length interactions.replay
       actual = length interactions.record
 
-withTape'AnyOrder :: Bool -> OpenTape AnyOrder -> IO a -> IO a
-withTape'AnyOrder replay tape = withRequestAction tape.redact \ makeRequest request -> join do
+data ReadWriteMode = ReadMode | WriteMode | ReadWriteMode
+
+shouldRecord :: ReadWriteMode -> Bool
+shouldRecord = \ case
+  ReadMode -> False
+  WriteMode -> True
+  ReadWriteMode -> True
+
+shouldReplay :: ReadWriteMode -> Bool
+shouldReplay = \ case
+  ReadMode -> True
+  WriteMode -> False
+  ReadWriteMode -> True
+
+runTape :: HasCallStack => ReadWriteMode -> Tape -> IO a -> IO a
+runTape mode tape = case tape.mode of
+  AnyOrder -> runTape'AnyOrder mode tape
+  Sequential -> runTape'Sequential mode tape
+
+runTape'AnyOrder :: ReadWriteMode -> Tape -> IO c -> IO c
+runTape'AnyOrder mode tape action = bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
+  processTape'AnyOrder mode t action
+
+processTape'AnyOrder :: ReadWriteMode -> OpenTape AnyOrder -> IO a -> IO a
+processTape'AnyOrder mode tape = withRequestAction tape.redact \ makeRequest request -> join do
   modifyMVar tape.interactions \ interactions -> do
-    case guard replay >> Map.lookup request interactions.interactions of
+    case guard (shouldReplay mode) >> Map.lookup request interactions.interactions of
       Just (WithIndex _ response) -> do
         return (interactions, wait response)
-      Nothing -> do
+      Nothing | shouldRecord mode -> do
         response <- async makeRequest
         return (addInteraction request response interactions, wait response)
+      Nothing -> do
+        return (interactions, makeRequest)
 
 addInteraction :: Request -> Async Response -> Interactions -> Interactions
 addInteraction request response (Interactions _ interactions nextIndex) =
@@ -135,8 +143,13 @@ addInteraction request response (Interactions _ interactions nextIndex) =
       , nextIndex
       }
 
-withTape'Sequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
-withTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -> do
+runTape'Sequential :: HasCallStack => ReadWriteMode -> Tape -> IO c -> IO c
+runTape'Sequential mode tape action = do
+  bracket (openTape'Sequential mode tape) (closeTape'Sequential mode) \ t -> do
+    processTape'Sequential t action <* checkLeftover t
+
+processTape'Sequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
+processTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -> do
   modifyMVar tape.interactions \ interactions -> do
     case interactions.replay of
       recorded@(recordedRequest, recordedResponse) : replay -> do
@@ -153,40 +166,10 @@ withTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -
           }, response)
 
 recordTape :: Tape -> IO a -> IO a
-recordTape tape@(Tape file _ redact) action = case tape.mode of
-  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
-    withTape'AnyOrder False t action
-  Sequential -> do
-    interactions <- newMVar $ InteractionSequence Modified [] []
-    let
-      t = OpenTape {
-        file
-      , interactions
-      , redact
-      }
-    withTape'Sequential t action `finally` closeTape'Sequential t
+recordTape = runTape WriteMode
 
 playTape :: HasCallStack => Tape -> IO a -> IO a
-playTape (Tape file mode redact) action = do
-  interactions <- loadTape file
-  case mode of
-    AnyOrder -> mockInteractions redact interactions action
-    Sequential -> playInOrder redact interactions action
-
-mockInteractions :: (Request -> Request) -> [(Request, Response)] -> IO a -> IO a
-mockInteractions redact = go
-  where
-    go :: [(Request, Response)] -> IO a -> IO a
-    go interactions = withRequestAction redact \ makeRequest request -> do
-      case lookup request interactions of
-        Just response -> return response
-        Nothing -> makeRequest
-
-playInOrder :: HasCallStack => (Request -> Request) -> [(Request, Response)] -> IO a -> IO a
-playInOrder redact = mockRequestChain . map toRequestAction
-  where
-    toRequestAction :: (Request, Response) -> Request -> IO Response
-    toRequestAction (request, response) = mkRequestAction request response . redact
+playTape = runTape ReadMode
 
 withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction redact requestAction = WebMock.withRequestAction
@@ -194,7 +177,7 @@ withRequestAction redact requestAction = WebMock.withRequestAction
 
 openTape'AnyOrder :: Tape -> IO (OpenTape AnyOrder)
 openTape'AnyOrder Tape{..} = do
-  interactions <- tryLoadTape file >>= toInteractions >>= newMVar
+  interactions <- Serialize.loadTape file >>= toInteractions >>= newMVar
   return OpenTape {
     file
   , interactions
@@ -220,7 +203,7 @@ closeTape'AnyOrder :: OpenTape AnyOrder -> IO ()
 closeTape'AnyOrder tape = do
   withMVar tape.interactions \ (Interactions modified interactions _) -> case modified of
     NotModified -> pass
-    Modified -> sequenceInteractions (toSortedList interactions) >>= saveTape tape.file
+    Modified -> sequenceInteractions (toSortedList interactions) >>= Serialize.saveTape tape.file
   where
     sequenceInteractions :: [(Request, Async Response)] -> IO [(Request, Response)]
     sequenceInteractions = fmap rights . traverse waitCatchAll
@@ -240,9 +223,9 @@ closeTape'AnyOrder tape = do
     value :: WithIndex a -> a
     value (WithIndex _ a) = a
 
-openTape'Sequential :: Tape -> IO (OpenTape Sequential)
-openTape'Sequential Tape{..} = do
-  replay <- tryLoadTape file
+openTape'Sequential :: ReadWriteMode -> Tape -> IO (OpenTape Sequential)
+openTape'Sequential mode Tape{file, redact} = do
+  replay <- if shouldReplay mode then Serialize.loadTape file else return []
   interactions <- newMVar InteractionSequence {
     modified = NotModified
   , replay
@@ -254,121 +237,7 @@ openTape'Sequential Tape{..} = do
   , redact
   }
 
-closeTape'Sequential :: OpenTape Sequential -> IO ()
-closeTape'Sequential tape = withMVar tape.interactions \ interactions -> case interactions.modified of
-  NotModified -> pass
-  Modified -> saveTape tape.file (reverse interactions.record)
-
-saveTape :: FilePath -> [(Request, Response)] -> IO ()
-saveTape file interactions = do
-  ensureDirectory file
-  B.writeFile file $ Yaml.encodePretty conf (toInteractions interactions)
-  where
-    conf = Yaml.setConfCompare (comparing f) Yaml.defConfig
-
-    f :: Text -> Int
-    f name = fromMaybe maxBound (lookup name fieldOrder)
-
-    toInteractions :: [(Request, Response)] -> [Interaction]
-    toInteractions = map \ (request, response) -> (Interaction request response)
-
-fieldOrder :: [(Text, Int)]
-fieldOrder = flip zip [1..] [
-    "request"
-  , "response"
-
-  , "method"
-  , "url"
-
-  , "status"
-  , "headers"
-  , "body"
-
-  , "code"
-  , "message"
-
-  , "name"
-  , "value"
-  ]
-
-ensureDirectory :: FilePath -> IO ()
-ensureDirectory = createDirectoryIfMissing True . takeDirectory
-
-tryLoadTape :: FilePath -> IO [(Request, Response)]
-tryLoadTape file = fromRight [] <$> tryJust (guard . isDoesNotExistError) (loadTape file)
-
-loadTape :: FilePath -> IO [(Request, Response)]
-loadTape file = B.readFile file >>= fmap fromInteractions . Yaml.decodeThrow
-  where
-    fromInteractions :: [Interaction] -> [(Request, Response)]
-    fromInteractions = map \ (Interaction request response) -> (request, response)
-
-data Interaction = Interaction Request Response
-
-instance ToJSON Interaction where
-  toJSON (Interaction request response) = object [
-        "request" .= requestToJSON request
-      , "response" .= responseToJSON response
-      ]
-    where
-      requestToJSON :: Request -> Value
-      requestToJSON Request{..} = object [
-          "method" .= B.unpack requestMethod
-        , "url" .= requestUrl
-        , "headers" .= headersToJSON requestHeaders
-        , "body" .= L.unpack requestBody
-        ]
-
-      responseToJSON :: Response -> Value
-      responseToJSON Response{..} = object [
-          "status" .= statusToJSON responseStatus
-        , "headers" .= headersToJSON responseHeaders
-        , "body" .= L.unpack responseBody
-        ]
-        where
-          statusToJSON :: Status -> Value
-          statusToJSON (Status code message) = object [
-              "code" .= code
-            , "message" .= B.unpack message
-            ]
-
-      headersToJSON :: RequestHeaders -> Value
-      headersToJSON = toJSON . map headerToJSON
-        where
-          headerToJSON :: Header -> Value
-          headerToJSON (name, value) = object [
-              "name" .= B.unpack (CI.original name)
-            , "value" .= B.unpack value
-            ]
-
-instance FromJSON Interaction where
-  parseJSON = withObject "Interaction" \ o -> Interaction
-    <$> (o .: "request" >>= requestFromJSON)
-    <*> (o .: "response" >>= responseFromJSON)
-    where
-      requestFromJSON :: Value -> Parser Request
-      requestFromJSON = withObject "Request" \ o ->
-        Request
-        <$> (B.pack <$> o .: "method")
-        <*> o .: "url"
-        <*> (o .: "headers" >>= headersFromJSON)
-        <*> (L.pack <$> o .: "body")
-
-      responseFromJSON :: Value -> Parser Response
-      responseFromJSON = withObject "Response" \ o -> Response
-        <$> (o .: "status" >>= statusFromJSON)
-        <*> (o .: "headers" >>= headersFromJSON)
-        <*> (L.pack <$> o .: "body")
-        where
-          statusFromJSON :: Object -> Parser Status
-          statusFromJSON o = Status
-            <$> (o .: "code")
-            <*> (B.pack <$> o .: "message")
-
-      headersFromJSON :: [Object] -> Parser RequestHeaders
-      headersFromJSON = mapM headerFromJSON
-        where
-          headerFromJSON :: Object -> Parser Header
-          headerFromJSON o = (,)
-            <$> (CI.mk . B.pack <$> o .: "name")
-            <*> (B.pack <$> o .: "value")
+closeTape'Sequential :: ReadWriteMode -> OpenTape Sequential -> IO ()
+closeTape'Sequential mode tape = withMVar tape.interactions \ interactions -> case interactions.modified of
+  Modified | shouldRecord mode -> Serialize.saveTape tape.file (reverse interactions.record)
+  _ -> pass

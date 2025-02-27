@@ -18,6 +18,7 @@ import Network.HTTP.Types
 import WebMock
 
 import VCR
+import VCR.Serialize (loadTape)
 
 makeRequest :: String -> [Header] -> IO (Client.Response LazyByteString)
 makeRequest url headers = do
@@ -304,4 +305,39 @@ spec = around_ inTempDirectory do
           mockRequest "http://httpbin.org/status/201" "" { responseStatus = status201 } do
             playTape tape do
               "http://httpbin.org/status/201" `shouldReturnStatus` status201
+          length <$> loadTape tape.file `shouldReturn` 1
+
+    context "when mode is Sequential" do
+      let tape = "tape.yaml" { mode = Sequential }
+
+      it "replays request in order" do
+        mockRequestChain [respondWith status200, respondWith status202, respondWith status201] do
+          recordTape tape do
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/202" `shouldReturnStatus` status202
+            "http://httpbin.org/status/201" `shouldReturnStatus` status201
+        disableRequests $ do
+          playTape tape do
+            "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            "http://httpbin.org/status/202" `shouldReturnStatus` status202
+            "http://httpbin.org/status/201" `shouldReturnStatus` status201
+
+      context "when not all requests are used" do
+          it "fails" do
+            mockRequest "http://httpbin.org/status/200" "" do
+              recordTape tape do
+                "http://httpbin.org/status/200" `shouldReturnStatus` status200
+                "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            playTape tape do "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              `shouldThrow` hUnitFailure (Reason "Expected 2 requests, but only received 1!")
+
+      context "with additional requests" do
+        it "does not fail" do
+          mockRequest "http://httpbin.org/status/200" "" do
+            recordTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+          mockRequestChain [\ _ -> return ""] do
+            playTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
           length <$> loadTape tape.file `shouldReturn` 1
