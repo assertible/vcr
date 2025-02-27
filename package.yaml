@@ -2,6 +2,10 @@ name: vcr
 
 ghc-options: -Wall
 
+when:
+  condition: impl(ghc < 9.4)
+  ghc-options: -Wno-unticked-promoted-constructors
+
 defaults: sol/ghc2024@v0.1.0
 
 default-extensions:

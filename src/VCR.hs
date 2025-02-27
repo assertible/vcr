@@ -1,6 +1,11 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StrictData #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module VCR (
   Tape(..)
@@ -26,6 +31,7 @@ import Data.Yaml
 import Data.Yaml qualified as Yaml
 import Data.Yaml.Pretty qualified as Yaml
 import GHC.Stack (HasCallStack)
+import System.IO.Error
 import System.Directory
 import System.FilePath
 
@@ -44,6 +50,18 @@ instance IsString Tape where
 data Mode = Sequential | AnyOrder
   deriving (Eq, Show)
 
+data OpenTape mode = OpenTape {
+  file :: FilePath
+, interactions :: InteractionsFor mode
+, redact :: Request -> Request
+}
+
+type family InteractionsFor (mode :: Mode)
+
+type instance InteractionsFor AnyOrder = [(Request, Response)]
+
+type instance InteractionsFor Sequential = [(Request, Response)]
+
 redactAuthorization :: Request -> Request
 redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
   where
@@ -53,28 +71,23 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
       | otherwise = header
 
 withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape (Tape file mode redact) = case mode of
-  AnyOrder -> modeAnyOrder redact file
-  Sequential -> modeSequential redact file
+withTape tape action = case tape.mode of
+  AnyOrder -> openTape'AnyOrder tape >>= flip modeAnyOrder action
+  Sequential -> openTape'Sequential tape >>= flip modeSequential action
 
-modeAnyOrder :: (Request -> Request) -> FilePath -> IO a -> IO a
-modeAnyOrder redact file action = do
-  interactions <- doesFileExist file >>= \ case
-    False -> return []
-    True -> loadTape file
-
-  let
+modeAnyOrder :: OpenTape AnyOrder -> IO a -> IO a
+modeAnyOrder tape action = do
+  captureInteractions tape.redact save $ mockInteractions tape.redact tape.interactions action
+  where
+    save :: [(Request, Response)] -> IO ()
     save newInteractions = unless (null newInteractions) do
-      saveTape file (interactions ++ newInteractions)
+      closeTape'AnyOrder tape { interactions = tape.interactions ++ newInteractions }
 
-  captureInteractions redact save $ mockInteractions redact interactions action
-
-modeSequential :: HasCallStack => (Request -> Request) -> FilePath -> IO a -> IO a
-modeSequential redact file action = doesFileExist file >>= \ case
-  False -> record redact file action
+modeSequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
+modeSequential tape action = case (not . null) tape.interactions of
+  False -> record tape.redact tape.file action
   True -> do
-    interactions <- loadTape file
-    playInOrder redact interactions action
+    playInOrder tape.redact tape.interactions action
 
 recordTape :: Tape -> IO a -> IO a
 recordTape (Tape file _ redact) = record redact file
@@ -128,6 +141,27 @@ withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Respo
 withRequestAction redact requestAction = WebMock.withRequestAction
   \ makeRequest request -> requestAction makeRequest (redact request)
 
+openTape'AnyOrder :: Tape -> IO (OpenTape AnyOrder)
+openTape'AnyOrder Tape{..} = do
+  interactions <- tryLoadTape file
+  return OpenTape {
+    file
+  , interactions
+  , redact
+  }
+
+closeTape'AnyOrder :: OpenTape AnyOrder -> IO ()
+closeTape'AnyOrder tape = saveTape tape.file tape.interactions
+
+openTape'Sequential :: Tape -> IO (OpenTape Sequential)
+openTape'Sequential Tape{..} = do
+  interactions <- tryLoadTape file
+  return OpenTape {
+    file
+  , interactions
+  , redact
+  }
+
 saveTape :: FilePath -> [(Request, Response)] -> IO ()
 saveTape file interactions = do
   ensureDirectory file
@@ -162,6 +196,9 @@ fieldOrder = flip zip [1..] [
 
 ensureDirectory :: FilePath -> IO ()
 ensureDirectory = createDirectoryIfMissing True . takeDirectory
+
+tryLoadTape :: FilePath -> IO [(Request, Response)]
+tryLoadTape file = either (const []) id <$> tryJust (guard . isDoesNotExistError) (loadTape file)
 
 loadTape :: FilePath -> IO [(Request, Response)]
 loadTape file = B.readFile file >>= fmap fromInteractions . Yaml.decodeThrow

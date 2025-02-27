@@ -49,6 +49,8 @@ library
         RoleAnnotations
   else
     default-language: GHC2024
+  if impl(ghc < 9.4)
+    ghc-options: -Wno-unticked-promoted-constructors
 
 test-suite spec
   type: exitcode-stdio-1.0
@@ -99,3 +101,5 @@ test-suite spec
         RoleAnnotations
   else
     default-language: GHC2024
+  if impl(ghc < 9.4)
+    ghc-options: -Wno-unticked-promoted-constructors
