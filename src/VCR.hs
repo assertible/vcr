@@ -40,6 +40,7 @@ import GHC.Stack (HasCallStack)
 import System.IO.Error
 import System.Directory
 import System.FilePath
+import Test.HUnit
 
 import WebMock hiding (withRequestAction)
 import WebMock qualified
@@ -79,7 +80,13 @@ data WithIndex a = WithIndex Index a
 newtype Index = Index Int
   deriving newtype (Eq, Show, Ord, Enum, Num)
 
-type instance InteractionsFor Sequential = [(Request, Response)]
+type instance InteractionsFor Sequential = MVar InteractionSequence
+
+data InteractionSequence = InteractionSequence {
+  modified :: Modified
+, replay :: [(Request, Response)]
+, record :: [(Request, Response)]
+}
 
 redactAuthorization :: Request -> Request
 redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
@@ -90,12 +97,22 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
       | otherwise = header
 
 withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape tape = case tape.mode of
-  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder . flip modeAnyOrder
-  Sequential -> bracket (openTape'Sequential tape) (\ _ -> pass) . flip modeSequential
+withTape tape action = case tape.mode of
+  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
+    withTape'AnyOrder t action
+  Sequential -> bracket (openTape'Sequential tape) closeTape'Sequential \ t -> do
+    withTape'Sequential t action <* checkLeftover t
 
-modeAnyOrder :: OpenTape AnyOrder -> IO a -> IO a
-modeAnyOrder tape = withRequestAction tape.redact \ makeRequest request -> join do
+checkLeftover :: HasCallStack => OpenTape Sequential -> IO ()
+checkLeftover tape = withMVar tape.interactions \ interactions -> case interactions.replay of
+  [] -> pass
+  _ -> assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
+    where
+      total = actual + length interactions.replay
+      actual = length interactions.record
+
+withTape'AnyOrder :: OpenTape AnyOrder -> IO a -> IO a
+withTape'AnyOrder tape = withRequestAction tape.redact \ makeRequest request -> join do
   modifyMVar tape.interactions \ interactions -> do
     case Map.lookup request interactions.interactions of
       Just (WithIndex _ response) -> do
@@ -118,11 +135,22 @@ addInteraction request response (Interactions _ interactions nextIndex) =
       , nextIndex
       }
 
-modeSequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
-modeSequential tape action = case (not . null) tape.interactions of
-  False -> record tape.redact tape.file action
-  True -> do
-    playInOrder tape.redact tape.interactions action
+withTape'Sequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
+withTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -> do
+  modifyMVar tape.interactions \ interactions -> do
+    case interactions.replay of
+      recorded@(recordedRequest, recordedResponse) : replay -> do
+        request @?= recordedRequest
+        return (interactions {
+            replay
+          , record = recorded : interactions.record
+          }, recordedResponse)
+      [] -> do
+        response <- makeRequest
+        return (interactions {
+            modified = Modified
+          , record = (request, response) : interactions.record
+          }, response)
 
 recordTape :: Tape -> IO a -> IO a
 recordTape (Tape file _ redact) = record redact file
@@ -226,12 +254,22 @@ closeTape'AnyOrder tape = do
 
 openTape'Sequential :: Tape -> IO (OpenTape Sequential)
 openTape'Sequential Tape{..} = do
-  interactions <- tryLoadTape file
+  replay <- tryLoadTape file
+  interactions <- newMVar InteractionSequence {
+    modified = NotModified
+  , replay
+  , record = []
+  }
   return OpenTape {
     file
   , interactions
   , redact
   }
+
+closeTape'Sequential :: OpenTape Sequential -> IO ()
+closeTape'Sequential tape = withMVar tape.interactions \ interactions -> case interactions.modified of
+  NotModified -> pass
+  Modified -> saveTape tape.file (reverse interactions.record)
 
 saveTape :: FilePath -> [(Request, Response)] -> IO ()
 saveTape file interactions = do
