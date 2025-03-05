@@ -67,15 +67,7 @@ spec = around_ inTempDirectory do
     context "when mode is AnyOrder" do
       let tape = "tape.yaml"
 
-      it "records the first request to a resource, replays subsequent requests" do
-        mockRequestChain [\ _ -> return ""] do
-          withTape tape do
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-        length <$> loadTape tape.file `shouldReturn` 1
-
-      it "records the requests in the order they were made" do
+      it "records requests in the order they were made" do
         mockRequestChain [respondWith status200, respondWith status202, respondWith status201] do
           withTape tape do
             "http://httpbin.org/status/200" `shouldReturnStatus` status200
@@ -86,6 +78,15 @@ spec = around_ inTempDirectory do
           , ("http://httpbin.org/status/202", "" { responseStatus = status202 })
           , ("http://httpbin.org/status/201", "" { responseStatus = status201 })
           ]
+
+      context "with repeated requests to a resource" do
+        it "records the first request, replays subsequent requests" do
+          mockRequestChain [\ _ -> return ""] do
+            withTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+          length <$> loadTape tape.file `shouldReturn` 1
 
       context "with an existing tape" do
         it "replays existing requests from the tape" do
@@ -131,13 +132,14 @@ spec = around_ inTempDirectory do
     context "when mode is Sequential" do
       let tape = "tape.yaml" { mode = Sequential }
 
-      it "records all requests to a resource" do
-        mockRequest "http://httpbin.org/status/200" "" do
-          withTape tape do
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-            "http://httpbin.org/status/200" `shouldReturnStatus` status200
-        length <$> loadTape tape.file `shouldReturn` 3
+      context "with repeated requests to a resource" do
+        it "records all interactions" do
+          mockRequest "http://httpbin.org/status/200" "" do
+            withTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+          length <$> loadTape tape.file `shouldReturn` 3
 
       context "with an existing tape" do
         it "replays request in order" do
@@ -214,6 +216,73 @@ spec = around_ inTempDirectory do
           mockRequest authRequest "" do
             withTape tape makeAuthRequest
           loadTape tape.file `shouldReturn` [(redactedAuthRequest, "")]
+
+  describe "recordTape" do
+    context "when mode is AnyOrder" do
+      let tape = "tape.yaml"
+
+      context "with repeated requests to a resource" do
+        it "records only the last interaction" do
+          mockRequestChain [\ _ -> return "foo", \ _ -> return "bar", \ _ -> return "baz"] do
+            recordTape tape do
+              "http://httpbin.org/status/200" `shouldReturnBody` "foo"
+              "http://httpbin.org/status/200" `shouldReturnBody` "bar"
+              "http://httpbin.org/status/200" `shouldReturnBody` "baz"
+          loadTape tape.file `shouldReturn` [("http://httpbin.org/status/200", "baz")]
+
+      context "with an existing tape" do
+        it "records new requests to the tape" do
+            mockRequest "http://httpbin.org/status/200" "" do
+              recordTape tape do
+                "http://httpbin.org/status/200" `shouldReturnStatus` status200
+            mockRequest "http://httpbin.org/status/201" "" { responseStatus = status201 } do
+              recordTape tape do
+                "http://httpbin.org/status/201" `shouldReturnStatus` status201
+            length <$> loadTape tape.file `shouldReturn` 2
+
+        it "updates existing requests, keeping the original order" do
+          mockRequestChain (replicate 3 $ \ _ -> return "") do
+            recordTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/202" `shouldReturnStatus` status200
+              "http://httpbin.org/status/201" `shouldReturnStatus` status200
+
+          mockRequestChain [\ _ -> return "foo"] do
+            recordTape tape do
+              "http://httpbin.org/status/202" `shouldReturnStatus` status200
+
+          loadTape tape.file `shouldReturn` [
+              ("http://httpbin.org/status/200", "")
+            , ("http://httpbin.org/status/202", "foo")
+            , ("http://httpbin.org/status/201", "")
+            ]
+
+    context "when mode is Sequential" do
+      let tape = "tape.yaml" { mode = Sequential }
+
+      context "with repeated requests to a resource" do
+        it "records all interactions" do
+          mockRequest "http://httpbin.org/status/200" "" do
+            withTape tape do
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              "http://httpbin.org/status/200" `shouldReturnStatus` status200
+          length <$> loadTape tape.file `shouldReturn` 3
+
+      context "with an existing tape" do
+        it "overwrites the existing tape" do
+            mockRequest "http://httpbin.org/status/200" "" do
+              recordTape tape do
+                "http://httpbin.org/status/200" `shouldReturnStatus` status200
+              loadTape tape.file `shouldReturn` [
+                  ("http://httpbin.org/status/200", "")
+                ]
+            mockRequest "http://httpbin.org/status/201" "" { responseStatus = status201 } do
+              recordTape tape do
+                "http://httpbin.org/status/201" `shouldReturnStatus` status201
+              loadTape tape.file `shouldReturn` [
+                  ("http://httpbin.org/status/201", "" { responseStatus = status201 })
+                ]
 
   describe "playTape" do
     context "when mode is AnyOrder" do

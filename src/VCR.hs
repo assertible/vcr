@@ -99,7 +99,7 @@ redactAuthorization request@Request{..} = request { requestHeaders = map redact 
 withTape :: HasCallStack => Tape -> IO a -> IO a
 withTape tape action = case tape.mode of
   AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
-    withTape'AnyOrder t action
+    withTape'AnyOrder True t action
   Sequential -> bracket (openTape'Sequential tape) closeTape'Sequential \ t -> do
     withTape'Sequential t action <* checkLeftover t
 
@@ -111,10 +111,10 @@ checkLeftover tape = withMVar tape.interactions \ interactions -> case interacti
       total = actual + length interactions.replay
       actual = length interactions.record
 
-withTape'AnyOrder :: OpenTape AnyOrder -> IO a -> IO a
-withTape'AnyOrder tape = withRequestAction tape.redact \ makeRequest request -> join do
+withTape'AnyOrder :: Bool -> OpenTape AnyOrder -> IO a -> IO a
+withTape'AnyOrder replay tape = withRequestAction tape.redact \ makeRequest request -> join do
   modifyMVar tape.interactions \ interactions -> do
-    case Map.lookup request interactions.interactions of
+    case guard replay >> Map.lookup request interactions.interactions of
       Just (WithIndex _ response) -> do
         return (interactions, wait response)
       Nothing -> do
@@ -153,30 +153,18 @@ withTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -
           }, response)
 
 recordTape :: Tape -> IO a -> IO a
-recordTape (Tape file _ redact) = record redact file
-
-record :: (Request -> Request) -> FilePath -> IO a -> IO a
-record redact = captureInteractions redact . saveTape
-
-captureInteractions :: (Request -> Request) -> ([(Request, Response)] -> IO ()) -> IO a -> IO a
-captureInteractions redact consumeCaptured action = do
-
-  ref <- newIORef []
-
-  let
-    capture :: IO Response -> Request -> IO Response
-    capture makeRequest request = do
-      response <- makeRequest
-      captureInteraction (request, response)
-      return response
-
-    captureInteraction :: (Request, Response) -> IO ()
-    captureInteraction x = atomicModifyIORef' ref \ xs -> (x : xs, ())
-
-    getCaptured :: IO [(Request, Response)]
-    getCaptured = reverse <$> atomicReadIORef ref
-
-  withRequestAction redact capture action `finally` (consumeCaptured =<< getCaptured)
+recordTape tape@(Tape file _ redact) action = case tape.mode of
+  AnyOrder -> bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
+    withTape'AnyOrder False t action
+  Sequential -> do
+    interactions <- newMVar $ InteractionSequence Modified [] []
+    let
+      t = OpenTape {
+        file
+      , interactions
+      , redact
+      }
+    withTape'Sequential t action `finally` closeTape'Sequential t
 
 playTape :: HasCallStack => Tape -> IO a -> IO a
 playTape (Tape file mode redact) action = do
