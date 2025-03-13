@@ -40,5 +40,4 @@ tests:
       - hspec
       - mockery
       - http-client-tls
-    cpp-options: -DTEST
     build-tools: hspec-discover

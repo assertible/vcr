@@ -38,11 +38,20 @@ data Tape = Tape {
 , redact :: Request -> Request
 }
 
+data Mode = Sequential | AnyOrder
+  deriving (Eq, Show)
+
 instance IsString Tape where
   fromString file = Tape file AnyOrder redactAuthorization
 
-data Mode = Sequential | AnyOrder
-  deriving (Eq, Show)
+withTape :: HasCallStack => Tape -> IO a -> IO a
+withTape = runTape ReadWriteMode
+
+recordTape :: Tape -> IO a -> IO a
+recordTape = runTape WriteMode
+
+playTape :: HasCallStack => Tape -> IO a -> IO a
+playTape = runTape ReadMode
 
 data OpenTape mode = OpenTape {
   file :: FilePath
@@ -74,17 +83,6 @@ data InteractionSequence = InteractionSequence {
 , replay :: [(Request, Response)]
 , record :: [(Request, Response)]
 }
-
-redactAuthorization :: Request -> Request
-redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
-  where
-    redact :: Header -> Header
-    redact header@(name, _)
-      | name == hAuthorization = (name, "********")
-      | otherwise = header
-
-withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape = runTape ReadWriteMode
 
 checkLeftover :: HasCallStack => OpenTape Sequential -> IO ()
 checkLeftover tape = withMVar tape.interactions \ interactions -> case interactions.replay of
@@ -165,12 +163,6 @@ processTape'Sequential tape = withRequestAction tape.redact \ makeRequest reques
           , record = (request, response) : interactions.record
           }, response)
 
-recordTape :: Tape -> IO a -> IO a
-recordTape = runTape WriteMode
-
-playTape :: HasCallStack => Tape -> IO a -> IO a
-playTape = runTape ReadMode
-
 withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction redact requestAction = WebMock.withRequestAction
   \ makeRequest request -> requestAction makeRequest (redact request)
@@ -241,3 +233,11 @@ closeTape'Sequential :: ReadWriteMode -> OpenTape Sequential -> IO ()
 closeTape'Sequential mode tape = withMVar tape.interactions \ interactions -> case interactions.modified of
   Modified | shouldRecord mode -> Serialize.saveTape tape.file (reverse interactions.record)
   _ -> pass
+
+redactAuthorization :: Request -> Request
+redactAuthorization request@Request{..} = request { requestHeaders = map redact requestHeaders }
+  where
+    redact :: Header -> Header
+    redact header@(name, _)
+      | name == hAuthorization = (name, "********")
+      | otherwise = header
