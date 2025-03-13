@@ -74,7 +74,6 @@ test-suite spec
       BlockArguments
       NoImplicitPrelude
   ghc-options: -Wall
-  cpp-options: -DTEST
   build-tool-depends:
       hspec-discover:hspec-discover
   build-depends:
