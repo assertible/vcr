@@ -35,6 +35,9 @@ hUnitFailure expectd (HUnitFailure _ actual) = expectd == actual
 expectedButGot :: Request -> Request -> HUnitFailure -> Bool
 expectedButGot expected actual= hUnitFailure (ExpectedButGot Nothing (show expected) (show actual))
 
+unexpectedRequest :: Request -> HUnitFailure -> Bool
+unexpectedRequest = hUnitFailure . Reason . mappend "Unexpected HTTP request: " . show
+
 infix 1 `shouldReturnStatus`
 infix 1 `shouldReturnBody`
 
@@ -298,14 +301,14 @@ spec = around_ inTempDirectory do
             "http://httpbin.org/status/200" `shouldReturnStatus` status200
         length <$> loadTape tape.file `shouldReturn` 1
 
-      it "does not record any new requests to the tape" do
+      it "fails on new requests" do
           mockRequest "http://httpbin.org/status/200" "" do
             recordTape tape do
               "http://httpbin.org/status/200" `shouldReturnStatus` status200
           mockRequest "http://httpbin.org/status/201" "" { responseStatus = status201 } do
             playTape tape do
               "http://httpbin.org/status/201" `shouldReturnStatus` status201
-          length <$> loadTape tape.file `shouldReturn` 1
+            `shouldThrow` unexpectedRequest "http://httpbin.org/status/201"
 
     context "when mode is Sequential" do
       let tape = "tape.yaml" { mode = Sequential }
@@ -332,7 +335,7 @@ spec = around_ inTempDirectory do
               `shouldThrow` hUnitFailure (Reason "Expected 2 requests, but only received 1!")
 
       context "with additional requests" do
-        it "does not fail" do
+        it "fails" do
           mockRequest "http://httpbin.org/status/200" "" do
             recordTape tape do
               "http://httpbin.org/status/200" `shouldReturnStatus` status200
@@ -340,4 +343,4 @@ spec = around_ inTempDirectory do
             playTape tape do
               "http://httpbin.org/status/200" `shouldReturnStatus` status200
               "http://httpbin.org/status/200" `shouldReturnStatus` status200
-          length <$> loadTape tape.file `shouldReturn` 1
+            `shouldThrow` unexpectedRequest "http://httpbin.org/status/200"
