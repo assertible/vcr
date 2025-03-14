@@ -9,9 +9,9 @@
 module VCR (
   Tape(..)
 , Mode(..)
-, withTape
-, recordTape
-, playTape
+, with
+, record
+, play
 ) where
 
 import Imports
@@ -44,14 +44,14 @@ data Mode = Sequential | AnyOrder
 instance IsString Tape where
   fromString file = Tape file AnyOrder redactAuthorization
 
-withTape :: HasCallStack => Tape -> IO a -> IO a
-withTape = runTape ReadWriteMode
+with :: HasCallStack => Tape -> IO a -> IO a
+with = runTape ReadWriteMode
 
-recordTape :: Tape -> IO a -> IO a
-recordTape = runTape WriteMode
+record :: Tape -> IO a -> IO a
+record = runTape WriteMode
 
-playTape :: HasCallStack => Tape -> IO a -> IO a
-playTape = runTape ReadMode
+play :: HasCallStack => Tape -> IO a -> IO a
+play = runTape ReadMode
 
 data OpenTape mode = OpenTape {
   file :: FilePath
