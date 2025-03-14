@@ -111,11 +111,11 @@ runTape mode tape = case tape.mode of
   AnyOrder -> runTape'AnyOrder mode tape
   Sequential -> runTape'Sequential mode tape
 
-runTape'AnyOrder :: ReadWriteMode -> Tape -> IO c -> IO c
+runTape'AnyOrder :: HasCallStack => ReadWriteMode -> Tape -> IO c -> IO c
 runTape'AnyOrder mode tape action = bracket (openTape'AnyOrder tape) closeTape'AnyOrder \ t ->  do
   processTape'AnyOrder mode t action
 
-processTape'AnyOrder :: ReadWriteMode -> OpenTape AnyOrder -> IO a -> IO a
+processTape'AnyOrder :: HasCallStack => ReadWriteMode -> OpenTape AnyOrder -> IO a -> IO a
 processTape'AnyOrder mode tape = withRequestAction tape.redact \ makeRequest request -> join do
   modifyMVar tape.interactions \ interactions -> do
     case guard (shouldReplay mode) >> Map.lookup request interactions.interactions of
@@ -125,7 +125,7 @@ processTape'AnyOrder mode tape = withRequestAction tape.redact \ makeRequest req
         response <- async makeRequest
         return (addInteraction request response interactions, wait response)
       Nothing -> do
-        return (interactions, makeRequest)
+        unexpectedRequest request
 
 addInteraction :: Request -> Async Response -> Interactions -> Interactions
 addInteraction request response (Interactions _ interactions nextIndex) =
@@ -143,11 +143,11 @@ addInteraction request response (Interactions _ interactions nextIndex) =
 
 runTape'Sequential :: HasCallStack => ReadWriteMode -> Tape -> IO c -> IO c
 runTape'Sequential mode tape action = do
-  bracket (openTape'Sequential mode tape) (closeTape'Sequential mode) \ t -> do
-    processTape'Sequential t action <* checkLeftover t
+  bracket (openTape'Sequential mode tape) closeTape'Sequential \ t -> do
+    processTape'Sequential mode t action <* checkLeftover t
 
-processTape'Sequential :: HasCallStack => OpenTape Sequential -> IO a -> IO a
-processTape'Sequential tape = withRequestAction tape.redact \ makeRequest request -> do
+processTape'Sequential :: HasCallStack => ReadWriteMode -> OpenTape Sequential -> IO a -> IO a
+processTape'Sequential mode tape = withRequestAction tape.redact \ makeRequest request -> do
   modifyMVar tape.interactions \ interactions -> do
     case interactions.replay of
       recorded@(recordedRequest, recordedResponse) : replay -> do
@@ -156,12 +156,17 @@ processTape'Sequential tape = withRequestAction tape.redact \ makeRequest reques
             replay
           , record = recorded : interactions.record
           }, recordedResponse)
-      [] -> do
+      [] | shouldRecord mode -> do
         response <- makeRequest
         return (interactions {
             modified = Modified
           , record = (request, response) : interactions.record
           }, response)
+      [] -> do
+        unexpectedRequest request
+
+unexpectedRequest :: HasCallStack => Request -> IO a
+unexpectedRequest request = assertFailure $ "Unexpected HTTP request: " ++ show request
 
 withRequestAction :: (Request -> Request) -> (IO Response -> Request -> IO Response) -> IO a -> IO a
 withRequestAction redact requestAction = WebMock.withRequestAction
@@ -229,9 +234,9 @@ openTape'Sequential mode Tape{file, redact} = do
   , redact
   }
 
-closeTape'Sequential :: ReadWriteMode -> OpenTape Sequential -> IO ()
-closeTape'Sequential mode tape = withMVar tape.interactions \ interactions -> case interactions.modified of
-  Modified | shouldRecord mode -> Serialize.saveTape tape.file (reverse interactions.record)
+closeTape'Sequential :: OpenTape Sequential -> IO ()
+closeTape'Sequential tape = withMVar tape.interactions \ interactions -> case interactions.modified of
+  Modified -> Serialize.saveTape tape.file (reverse interactions.record)
   _ -> pass
 
 redactAuthorization :: Request -> Request
