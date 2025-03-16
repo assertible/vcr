@@ -1,4 +1,5 @@
 name: vcr
+synopsis: Record and replay HTTP interactions
 
 ghc-options: -Wall
 
