@@ -1,3 +1,22 @@
+-- |
+-- Description : Record and replay HTTP interactions
+--
+-- This module provides functionality for recording and replaying HTTP
+-- interactions using a tape. A tape represents a stored log of
+-- request/response pairs and can be operated in two modes:
+--
+-- * `AnyOrder` (the default): Requests may be replayed in any order.  In this
+--   mode the tape is interpreted as a mapping from requests to responses.
+-- * `Sequential`: Requests must be replayed in the order in which they were
+--   recorded.  In this mode the tape is interpreted as a list of
+--   request/response pairs.
+--
+-- The module exports the following operations to work with tapes:
+--
+-- * `with` - Replays previously recorded interactions and records new ones.
+-- * `record` - Records new interactions, overwriting any existing ones.
+-- * `play` - Replays previously recorded interactions and fails when a
+--   requested interaction is not found on the tape.
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -7,8 +26,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 module VCR (
+  -- * Types
   Tape(..)
 , Mode(..)
+  -- * Tape Operations
 , with
 , record
 , play
@@ -32,24 +53,57 @@ import WebMock qualified
 
 import VCR.Serialize qualified as Serialize
 
+-- | A `Tape` is used to record and replay HTTP interactions.
+--
+-- It consists of:
+--
+-- * A `file` path to persist the tape to.
+-- * A `mode` that controls whether interactions are replayed sequentially or
+--   in any order.
+-- * A `redact` function that can modify HTTP requests (by default this redacts
+--   the @Authorization@ header).
 data Tape = Tape {
-  file :: FilePath
-, mode :: Mode
-, redact :: Request -> Request
+  file :: FilePath -- ^ Path to the tape file.
+, mode :: Mode -- ^ Mode of operation.
+, redact :: Request -> Request -- ^ Function to redact sensitive information from a request.
 }
 
-data Mode = Sequential | AnyOrder
+-- | Represents the mode of operation for a tape.
+data Mode =
+    Sequential -- ^ Requests must be replayed in the order in which they were recorded.
+  | AnyOrder -- ^ Requests may be replayed in any order.
   deriving (Eq, Show)
 
 instance IsString Tape where
   fromString file = Tape file AnyOrder redactAuthorization
 
+-- | Execute an action with the given tape in read-write mode.
+--
+-- * Replay interactions that have been recorded earlier.
+-- * Record new interactions that do not yet exist on the tape.
+--
+-- Use `with` when you want to both replay and record interactions.
 with :: HasCallStack => Tape -> IO a -> IO a
 with = runTape ReadWriteMode
 
+-- | Execute an action with the given tape in write mode.
+--
+-- * Overwrite interactions that have been recorded earlier.
+-- * Record new interactions that do not yet exist on the tape.
+--
+-- Use `record` when you want to update a tape with new responses, replacing
+-- any existing interactions for a given request.
 record :: Tape -> IO a -> IO a
 record = runTape WriteMode
 
+-- | Execute an action with the given tape in read mode.
+--
+-- * Replay interactions that have been recorded earlier.
+-- * Fail on new interactions that do not yet exist on the tape.
+--
+-- Use `play` when you want to test against recorded responses while at the
+-- same time also deny real HTTP requests for interactions that have not been
+-- recorded.
 play :: HasCallStack => Tape -> IO a -> IO a
 play = runTape ReadMode
 
@@ -81,7 +135,7 @@ type instance InteractionsFor Sequential = MVar InteractionSequence
 data InteractionSequence = InteractionSequence {
   modified :: Modified
 , replay :: [(Request, Response)]
-, record :: [(Request, Response)]
+, rec :: [(Request, Response)]
 }
 
 checkLeftover :: HasCallStack => OpenTape Sequential -> IO ()
@@ -90,7 +144,7 @@ checkLeftover tape = withMVar tape.interactions \ interactions -> case interacti
   _ -> assertFailure $ "Expected " ++ show total ++ " requests, but only received " ++ show actual ++ "!"
     where
       total = actual + length interactions.replay
-      actual = length interactions.record
+      actual = length interactions.rec
 
 data ReadWriteMode = ReadMode | WriteMode | ReadWriteMode
 
@@ -154,13 +208,13 @@ processTape'Sequential mode tape = withRequestAction tape.redact \ makeRequest r
         request @?= recordedRequest
         return (interactions {
             replay
-          , record = recorded : interactions.record
+          , rec = recorded : interactions.rec
           }, recordedResponse)
       [] | shouldRecord mode -> do
         response <- makeRequest
         return (interactions {
             modified = Modified
-          , record = (request, response) : interactions.record
+          , rec = (request, response) : interactions.rec
           }, response)
       [] -> do
         unexpectedRequest request
@@ -226,7 +280,7 @@ openTape'Sequential mode Tape{file, redact} = do
   interactions <- newMVar InteractionSequence {
     modified = NotModified
   , replay
-  , record = []
+  , rec = []
   }
   return OpenTape {
     file
@@ -236,7 +290,7 @@ openTape'Sequential mode Tape{file, redact} = do
 
 closeTape'Sequential :: OpenTape Sequential -> IO ()
 closeTape'Sequential tape = withMVar tape.interactions \ interactions -> case interactions.modified of
-  Modified -> Serialize.saveTape tape.file (reverse interactions.record)
+  Modified -> Serialize.saveTape tape.file (reverse interactions.rec)
   _ -> pass
 
 redactAuthorization :: Request -> Request

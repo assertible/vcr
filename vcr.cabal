@@ -6,6 +6,7 @@ cabal-version: 1.12
 
 name:           vcr
 version:        0.0.0
+synopsis:       Record and replay HTTP interactions
 license:        MIT
 license-file:   LICENSE
 build-type:     Simple
