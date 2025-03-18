@@ -89,6 +89,7 @@ test-suite spec
     , hspec
     , http-client
     , http-client-tls
+    , http-conduit
     , http-types
     , mockery
     , network-uri
