@@ -41,4 +41,5 @@ tests:
       - hspec
       - mockery
       - http-client-tls
+      - http-conduit
     build-tools: hspec-discover

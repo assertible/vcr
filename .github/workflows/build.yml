@@ -43,6 +43,10 @@ jobs:
       - uses: sol/run-haskell-tests@v1
         with:
           caching: true
+      - run: cabal install -z markdown-unlit
+      - run: cabal exec -- ghc -e '' -ignore-dot-ghci -pgmL markdown-unlit README.lhs
+      - run: cabal exec -- ghc -e '' -ignore-dot-ghci -pgmL markdown-unlit README.lhs -optL haskell+hook
+      - run: cabal exec -- ghc -e '' -ignore-dot-ghci -pgmL markdown-unlit README.lhs -optL haskell+parallel-hook
 
   success:
     needs: build
