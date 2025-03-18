@@ -14,7 +14,7 @@ VCR is a Haskell library for recording and replaying HTTP interactions, making y
  - ⚙️ ~Integration with popular Haskell HTTP client libraries~
 
 ## Installation
-VCR requires a patched version of `http-client`.
+VCR requires a patched version of `http-client` ([upstream PR](https://github.com/snoyberg/http-client/pull/554)).
 
 Add `assertible/http-client` to your `stack.yaml`:
 ```yaml
