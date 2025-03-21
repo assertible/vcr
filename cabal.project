@@ -5,9 +5,3 @@ program-options
   ghc-options: -Werror
 
 tests: True
-
-source-repository-package
-  type: git
-  location: https://github.com/sol/http-client
-  tag: fa28b3ca86e8d913dfbc9b2273957e6cd285ea24
-  subdir: http-client

@@ -11,27 +11,9 @@ VCR is a Haskell library for recording and replaying HTTP interactions, making y
  - 🔒 Automatic redaction of sensitive information (e.g. the `Authorization` header)
  - 🧶 Thread-safe and non-blocking design
  - ⚡ Suitable for highly concurrent workloads
- - ⚙️ ~Integration with popular Haskell HTTP client libraries~
+ - ⚙️  Integration with popular Haskell HTTP client libraries
 
 ## Installation
-VCR requires a patched version of `http-client` ([upstream PR](https://github.com/snoyberg/http-client/pull/554)).
-
-Add `assertible/http-client` to your `stack.yaml`:
-```yaml
-extra-deps:
-  - github: assertible/http-client
-    commit: assertible-http-client-0.7.17
-    subdirs:
-      - http-client
-```
-or `cabal.project`:
-```cabal
-source-repository-package
-  type: git
-  location: https://github.com/assertible/http-client
-  tag: assertible-http-client-0.7.17
-  subdir: http-client
-```
 
 Add VCR to your project's `package.yaml`:
 

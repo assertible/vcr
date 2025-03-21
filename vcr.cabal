@@ -35,7 +35,7 @@ library
     , containers
     , directory
     , filepath
-    , http-client
+    , http-client >=0.7.19
     , http-types
     , network-uri
     , text
@@ -87,7 +87,7 @@ test-suite spec
     , directory
     , filepath
     , hspec
-    , http-client
+    , http-client >=0.7.19
     , http-client-tls
     , http-conduit
     , http-types
