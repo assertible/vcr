@@ -294,7 +294,7 @@ hook = aroundAll_ (VCR.with "test/fixtures/vcr-tape.yaml")
 VCR is suitable for highly concurrent workloads.
 - Request recording and playback are thread-safe.
 - Concurrent requests to *different* resources do not block each other.
-- Results for concurrent requests to  the *same* resource are shared.
+- Responses for concurrent requests to  the *same* resource are shared.
 
 Example Hspec [spec hook](https://hspec.github.io/hspec-discover.html#spec-hooks) that leverages all available cores and uses the same VCR tape for the entire test suite:
 ```haskell ignore parallel-hook
