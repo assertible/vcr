@@ -7,9 +7,17 @@ cabal-version: 1.12
 name:           vcr
 version:        0.0.0
 synopsis:       Record and replay HTTP interactions
+category:       Testing
+homepage:       https://github.com/assertible/vcr#readme
+bug-reports:    https://github.com/assertible/vcr/issues
+maintainer:     Simon Hengel <sol@typeful.net>
 license:        MIT
 license-file:   LICENSE
 build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/assertible/vcr
 
 library
   exposed-modules:
