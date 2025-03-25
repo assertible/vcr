@@ -1,5 +1,9 @@
 name: vcr
 synopsis: Record and replay HTTP interactions
+category: Testing
+maintainer: Simon Hengel <sol@typeful.net>
+
+github: assertible/vcr
 
 ghc-options: -Wall
 
