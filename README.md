@@ -296,7 +296,7 @@ hook = useAllAvailableCores . parallel . aroundAll_ (VCR.with "test/fixtures/vcr
 
 ## API Documentation
 
-~Full API documentation is available on [Hackage](https://hackage.haskell.org/package/vcr).~
+Full API documentation is available on [Hackage](https://hackage.haskell.org/package/vcr).
 
 <!--
 ```haskell
