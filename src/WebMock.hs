@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+-- | Stability: unstable
 module WebMock (
   Request (..)
 , Response (..)

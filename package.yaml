@@ -1,4 +1,5 @@
 name: vcr
+version: 0.1.0
 synopsis: Record and replay HTTP interactions
 category: Testing
 maintainer: Simon Hengel <sol@typeful.net>
@@ -34,6 +35,11 @@ dependencies:
 
 library:
   source-dirs: src
+  exposed-modules:
+    - VCR
+    - VCR.Serialize
+    - WebMock
+    - WebMock.Util
 
 tests:
   spec:

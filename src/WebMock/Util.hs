@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+-- | Stability: unstable
 module WebMock.Util (requestBodyToByteString) where
 
 import Imports
