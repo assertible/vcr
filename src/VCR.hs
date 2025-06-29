@@ -1,5 +1,5 @@
 -- |
--- Description : Record and replay HTTP interactions
+-- = Record and replay HTTP interactions
 --
 -- This module provides functionality for recording and replaying HTTP
 -- interactions using a tape. A tape represents a stored log of

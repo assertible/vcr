@@ -1,11 +1,11 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.38.0.
+-- This file has been generated from package.yaml by hpack version 0.38.1.
 --
 -- see: https://github.com/sol/hpack
 
 name:           vcr
-version:        0.0.0
+version:        0.1.0
 synopsis:       Record and replay HTTP interactions
 category:       Testing
 homepage:       https://github.com/assertible/vcr#readme
@@ -21,12 +21,12 @@ source-repository head
 
 library
   exposed-modules:
-      Imports
       VCR
       VCR.Serialize
       WebMock
       WebMock.Util
   other-modules:
+      Imports
       Paths_vcr
   hs-source-dirs:
       src
